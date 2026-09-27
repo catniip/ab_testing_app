@@ -28,6 +28,9 @@ class PopulationConfig:
     selected_cpcs: list[str] = field(default_factory=list)
     common_mob_horizon: int = 36
     completeness_policy: str = "Exclude incomplete metric histories"
+    grouping_column: str = ""
+    grouping_definitions: list[dict[str, Any]] = field(default_factory=list)
+    group_settings: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass
@@ -57,6 +60,7 @@ class StrategyConfig:
     treatment_names: list[str] = field(default_factory=lambda: ["LOW", "HIGH"])
     categorical_control: str = "BAU"
     categorical_treatments: list[str] = field(default_factory=lambda: ["Offer A", "Offer B"])
+    group_arms: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass
@@ -73,6 +77,7 @@ class MetricConfig:
     source_column: str = ""
     processed_column: str = ""
     aggregation_method: str = "Average"
+    mob_start: int = 1
     mob_horizon: int = 12
     observation_unit: str = "Months"
     assumption_source: str = "Enter Manually"
@@ -87,19 +92,21 @@ class MetricConfig:
 class DesignConfig:
     alpha: float = 0.05
     target_power: float = 0.8
-    allocation: str = "Equal Allocation"
-    sample_size_basis: str = "Primary Metric Only"
+    allocation: str = "Traffic Allocation"
+    sample_size_basis: str = "Power All Configured Metrics"
     multiplicity_method: str = "Holm"
     attrition_rate: float = 0.0
     planned_launch_date: str = ""
     outcome_delay_value: int = 0
     outcome_delay_unit: str = "Days"
     eligible_customers: int = 300
-    traffic_frequency: str = "Day"
+    traffic_frequency: str = "Monthly"
+    max_enrollment_periods: int = 0
     required_n_per_arm: int = 0
     total_sample_size: int = 0
     binding_metric: str = ""
     arm_sample_sizes: dict[str, int] = field(default_factory=dict)
+    group_plan_rows: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

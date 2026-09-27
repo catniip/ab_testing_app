@@ -39,6 +39,8 @@ def raw_longitudinal_portfolio(seed: int = 84, accounts: int = 1800) -> pd.DataF
     cutoff = pd.Timestamp("2026-06-30")
     records = []
     cpcs = rng.choice(["CPC_A", "CPC_B", "CPC_C"], size=accounts, p=[0.46, 0.36, 0.18])
+    risk_segments = rng.choice(["Prime", "Near Prime", "Subprime"], size=accounts, p=[0.47, 0.37, 0.16])
+    revenue_bands = rng.choice(["Low", "Medium", "High"], size=accounts, p=[0.30, 0.48, 0.22])
     booking_offsets = rng.integers(3, 54, size=accounts)
     for idx in range(accounts):
         account_id = f"A{idx + 1:06d}"
@@ -47,6 +49,10 @@ def raw_longitudinal_portfolio(seed: int = 84, accounts: int = 1800) -> pd.DataF
         credit_line = int(np.clip(np.round(rng.normal(5600, 1900) / 500) * 500, 1000, 12000))
         base_balance = max(150, credit_line * rng.uniform(0.18, 0.55))
         cpc = cpcs[idx]
+        risk_segment = risk_segments[idx]
+        fico_center = {"Prime": 750, "Near Prime": 685, "Subprime": 620}[risk_segment]
+        fico = int(np.clip(rng.normal(fico_center, 24), 520, 820))
+        fico_band = "Below 660" if fico < 660 else "660 to 719" if fico < 720 else "720+"
         incomplete = rng.random() < 0.08 and max_mob >= 18
         missing_mobs = set(rng.choice(np.arange(1, min(max_mob, 36) + 1), size=min(2, max_mob), replace=False).tolist()) if incomplete else set()
         for mob in range(1, min(max_mob, 40) + 1):
@@ -61,6 +67,10 @@ def raw_longitudinal_portfolio(seed: int = 84, accounts: int = 1800) -> pd.DataF
                     "customer_id": f"C{idx + 1:06d}",
                     "account_id": account_id,
                     "cpc": cpc,
+                    "risk_segment": risk_segment,
+                    "fico": fico,
+                    "fico_band": fico_band,
+                    "revenue_band": revenue_bands[idx],
                     "booking_date": booking_date.date().isoformat(),
                     "mob": mob,
                     "current_credit_line": credit_line,
@@ -82,6 +92,8 @@ def experiment_results(seed: int = 202, rows_per_arm: int = 850) -> pd.DataFrame
         lift = {3000: -80, 5000: 0, 8000: 220}[int(line)]
         for idx in range(rows_per_arm):
             fico = int(np.clip(rng.normal(690 + (line - 5000) / 350, 45), 540, 820))
+            risk_segment = "Subprime" if fico < 660 else "Near Prime" if fico < 720 else "Prime"
+            fico_band = "Below 660" if fico < 660 else "660 to 719" if fico < 720 else "720+"
             utilization = np.clip(rng.beta(2.2, 5.2) + (line - 5000) / 26000, 0.01, 0.98)
             balance = max(0, 1320 + lift + (line - 5000) * 0.055 + rng.normal(0, 1125))
             default_prob = np.clip(0.035 + utilization * 0.035 + (660 - fico) / 6000, 0.003, 0.18)
@@ -96,6 +108,9 @@ def experiment_results(seed: int = 202, rows_per_arm: int = 850) -> pd.DataFrame
                     "loss": round(loss, 2),
                     "utilization": round(utilization, 4),
                     "fico": fico,
+                    "fico_band": fico_band,
+                    "risk_segment": risk_segment,
+                    "revenue_band": "Low" if balance < 900 else "Medium" if balance < 1900 else "High",
                     "default_flag": default_flag,
                 }
             )

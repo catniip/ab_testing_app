@@ -30,6 +30,7 @@ def validate_analysis_data(
     control_arm,
     treatment_arms: list,
     unit_id_col: str = "",
+    expected_shares: dict | None = None,
 ) -> tuple[list[str], list[str]]:
     errors, warnings = [], []
     if assignment_col not in df.columns:
@@ -66,8 +67,14 @@ def validate_analysis_data(
         if df[unit_id_col].duplicated().any():
             errors.append("Result data contains repeated unit IDs. Aggregate outcomes to one row per randomized unit before analysis.")
     if len(counts) == len(arms) and counts.sum() > 0:
-        expected = counts.sum() / len(arms)
-        statistic = float((((counts - expected) ** 2) / expected).sum())
+        observed = np.array([counts.get(arm, 0) for arm in arms], dtype=float)
+        if expected_shares:
+            shares = np.array([float(expected_shares.get(arm, 0)) for arm in arms], dtype=float)
+            shares = shares / shares.sum() if shares.sum() > 0 else np.repeat(1 / len(arms), len(arms))
+        else:
+            shares = np.repeat(1 / len(arms), len(arms))
+        expected = observed.sum() * shares
+        statistic = float(np.sum((observed - expected) ** 2 / np.maximum(expected, 1e-12)))
         srm_p = float(stats.chi2.sf(statistic, len(arms) - 1))
         if srm_p < 0.01:
             warnings.append(f"Possible sample-ratio mismatch across arms (p = {srm_p:.4f}).")
@@ -80,6 +87,7 @@ def analysis_integrity_summary(
     outcomes: dict[str, tuple[str, str]],
     arms: list,
     unit_id_col: str,
+    expected_shares: dict | None = None,
 ) -> dict:
     scoped = df[df[assignment_col].isin(arms)].copy() if assignment_col in df else pd.DataFrame()
     arm_counts = scoped.groupby(assignment_col).size().to_dict() if not scoped.empty else {}
@@ -92,8 +100,13 @@ def analysis_integrity_summary(
     srm_pvalue = np.nan
     if len(arm_counts) == len(arms) and sum(arm_counts.values()) > 0:
         observed = np.array([arm_counts.get(arm, 0) for arm in arms], dtype=float)
-        expected = observed.sum() / len(arms)
-        statistic = float(np.sum((observed - expected) ** 2 / expected))
+        if expected_shares:
+            shares = np.array([float(expected_shares.get(arm, 0)) for arm in arms], dtype=float)
+            shares = shares / shares.sum() if shares.sum() > 0 else np.repeat(1 / len(arms), len(arms))
+        else:
+            shares = np.repeat(1 / len(arms), len(arms))
+        expected = observed.sum() * shares
+        statistic = float(np.sum((observed - expected) ** 2 / np.maximum(expected, 1e-12)))
         srm_pvalue = float(stats.chi2.sf(statistic, len(arms) - 1))
     return {
         "rows": len(scoped),

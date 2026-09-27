@@ -43,7 +43,9 @@ def build_historical_metric_dataset(
 def processed_metric_name(metric: MetricConfig) -> str:
     prefix = "avg" if metric.aggregation_method == "Average" else "cum"
     base = re.sub(r"[^a-z0-9]+", "_", metric.source_column.lower()).strip("_")
-    return f"{prefix}_{base}_mob{metric.mob_horizon}"
+    start = max(int(getattr(metric, "mob_start", 1)), 1)
+    suffix = f"mob{metric.mob_horizon}" if start == 1 else f"mob{start}_{metric.mob_horizon}"
+    return f"{prefix}_{base}_{suffix}"
 
 
 def validate_mapping(raw_df: pd.DataFrame, mapping: DataMappingConfig) -> list[str]:
@@ -90,15 +92,22 @@ def determine_mature_units(df: pd.DataFrame, mapping: DataMappingConfig, require
     return max_mob[max_mob >= required_horizon].index
 
 
-def completeness_by_unit(df: pd.DataFrame, mapping: DataMappingConfig, unit_ids: pd.Index, required_horizon: int) -> pd.DataFrame:
+def completeness_by_unit(
+    df: pd.DataFrame,
+    mapping: DataMappingConfig,
+    unit_ids: pd.Index,
+    required_horizon: int,
+    start_mob: int = 1,
+) -> pd.DataFrame:
     scoped = df[df[mapping.unit_id_column].isin(unit_ids)].copy()
     scoped["_mob"] = safe_numeric_series(scoped, mapping.mob_column)
-    scoped = scoped[(scoped["_mob"] >= 1) & (scoped["_mob"] <= required_horizon)]
+    start_mob = max(int(start_mob), 1)
+    scoped = scoped[(scoped["_mob"] >= start_mob) & (scoped["_mob"] <= required_horizon)]
     observed = scoped.drop_duplicates([mapping.unit_id_column, "_mob"]).groupby(mapping.unit_id_column)["_mob"].nunique()
     out = pd.DataFrame({mapping.unit_id_column: unit_ids})
     out["Observed MOBs"] = out[mapping.unit_id_column].map(observed).fillna(0).astype(int)
-    out["Expected MOBs"] = required_horizon
-    out["Complete"] = out["Observed MOBs"] >= required_horizon
+    out["Expected MOBs"] = max(required_horizon - start_mob + 1, 0)
+    out["Complete"] = out["Observed MOBs"] >= out["Expected MOBs"]
     return out
 
 
@@ -109,6 +118,7 @@ def aggregate_metric_by_mob(
     metric_column: str,
     aggregation_method: str,
     mob_horizon: int,
+    mob_start: int = 1,
 ) -> pd.Series:
     scoped = pd.DataFrame(
         {
@@ -119,7 +129,8 @@ def aggregate_metric_by_mob(
     )
     scoped["_mob"] = safe_numeric_series(scoped, mob_column)
     scoped["_metric"] = safe_numeric_series(scoped, metric_column)
-    scoped = scoped[(scoped["_mob"] >= 1) & (scoped["_mob"] <= mob_horizon)].dropna(subset=[unit_column, "_mob"])
+    mob_start = max(int(mob_start), 1)
+    scoped = scoped[(scoped["_mob"] >= mob_start) & (scoped["_mob"] <= mob_horizon)].dropna(subset=[unit_column, "_mob"])
     monthly = scoped.groupby([unit_column, "_mob"], as_index=False)["_metric"].mean()
     if aggregation_method == "Cumulative":
         return monthly.groupby(unit_column)["_metric"].sum()
@@ -147,8 +158,10 @@ def build_analysis_dataset(
         if metric.source_column not in selected.columns:
             raise ValueError(f"{metric.name}: source column {metric.source_column} is not present in the selected dataset.")
     strategy_errors = validate_fixed_unit_value(selected, mapping.unit_id_column, strategy_column) if strategy_column in selected.columns and not selected.empty else []
-    if strategy_errors:
-        raise ValueError("; ".join(strategy_errors))
+    grouping_column = getattr(population, "grouping_column", "")
+    grouping_errors = validate_fixed_unit_value(selected, mapping.unit_id_column, grouping_column) if grouping_column in selected.columns and not selected.empty else []
+    if strategy_errors or grouping_errors:
+        raise ValueError("; ".join(strategy_errors + grouping_errors))
 
     if mapping.data_structure == "Cross-sectional (one row per unit)":
         unit_info_cols = [mapping.unit_id_column]
@@ -156,6 +169,8 @@ def build_analysis_dataset(
             unit_info_cols.append(mapping.cpc_column)
         if strategy_column and strategy_column in selected.columns:
             unit_info_cols.append(strategy_column)
+        if grouping_column and grouping_column in selected.columns:
+            unit_info_cols.append(grouping_column)
         unit_info = fixed_unit_values(selected, mapping.unit_id_column, unit_info_cols[1:])
         analysis = unit_info.copy()
         metric_preview_rows = []
@@ -204,6 +219,8 @@ def build_analysis_dataset(
         unit_info_cols.append(mapping.cpc_column)
     if strategy_column and strategy_column in selected.columns:
         unit_info_cols.append(strategy_column)
+    if grouping_column and grouping_column in selected.columns:
+        unit_info_cols.append(grouping_column)
     unit_info = fixed_unit_values(selected, mapping.unit_id_column, unit_info_cols[1:])
     metric_preview_rows = []
     metric_values: dict[str, pd.Series] = {}
@@ -213,9 +230,18 @@ def build_analysis_dataset(
         metric.processed_column = processed_metric_name(metric)
         metric.column = metric.processed_column
         metric_mature_units = determine_mature_units(selected, mapping, int(metric.mob_horizon))
-        metric_completeness = completeness_by_unit(selected, mapping, metric_mature_units, int(metric.mob_horizon))
+        metric_start = max(int(getattr(metric, "mob_start", 1)), 1)
+        metric_completeness = completeness_by_unit(selected, mapping, metric_mature_units, int(metric.mob_horizon), metric_start)
         metric_complete_units = pd.Index(metric_completeness.loc[metric_completeness["Complete"], mapping.unit_id_column])
-        aggregated = aggregate_metric_by_mob(selected[selected[mapping.unit_id_column].isin(metric_complete_units)], mapping.unit_id_column, mapping.mob_column, metric.source_column, metric.aggregation_method, metric.mob_horizon)
+        aggregated = aggregate_metric_by_mob(
+            selected[selected[mapping.unit_id_column].isin(metric_complete_units)],
+            mapping.unit_id_column,
+            mapping.mob_column,
+            metric.source_column,
+            metric.aggregation_method,
+            metric.mob_horizon,
+            metric_start,
+        )
         metric_values[metric.processed_column] = aggregated
         eligible_units.update(aggregated.index.tolist())
         clean = pd.to_numeric(aggregated, errors="coerce").dropna()
@@ -234,7 +260,11 @@ def build_analysis_dataset(
                 "Metric": metric.name,
                 "Role": metric.role,
                 "Aggregation": metric.aggregation_method,
-                "Observation Window": f"Through MOB {metric.mob_horizon}",
+                "Observation Window": (
+                    f"Through MOB {metric.mob_horizon}"
+                    if metric_start == 1
+                    else f"MOB {metric_start} to {metric.mob_horizon}"
+                ),
                 "Baseline": baseline,
                 "SD": std,
                 "Eligible N": int(clean.size),

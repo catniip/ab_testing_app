@@ -190,6 +190,22 @@ def test_analysis_integrity_summary_reports_arm_balance_and_missingness():
     assert summary["srm_status"] == "Pass"
 
 
+def test_assignment_balance_uses_planned_traffic_shares():
+    df = pd.DataFrame(
+        {
+            "customer_id": [f"C{index}" for index in range(30)],
+            "arm": ["BAU"] * 10 + ["Treatment"] * 20,
+            "outcome": range(30),
+        }
+    )
+    outcomes = {"Primary": ("outcome", "Continuous")}
+    errors, warnings = validate_analysis_data(df, "arm", outcomes, "BAU", ["Treatment"], "customer_id", {"BAU": 1 / 3, "Treatment": 2 / 3})
+    summary = analysis_integrity_summary(df, "arm", outcomes, ["BAU", "Treatment"], "customer_id", {"BAU": 1 / 3, "Treatment": 2 / 3})
+    assert not errors
+    assert not warnings
+    assert summary["srm_status"] == "Pass"
+
+
 def test_arm_decision_scorecard_combines_evidence_magnitude_and_guardrail():
     primary = pd.DataFrame(
         [

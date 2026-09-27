@@ -9,6 +9,7 @@ from src.experiment_platform.raw_processing import (
     build_analysis_dataset,
     common_horizon,
     determine_mature_units,
+    processed_metric_name,
 )
 
 
@@ -77,6 +78,14 @@ def test_average_and_cumulative_aggregation_with_duplicate_unit_mob():
     cum = aggregate_metric_by_mob(raw[raw["account_id"] == "A1"], "account_id", "mob", "revenue", "Cumulative", 36)
     assert round(avg.loc["A1"], 2) == round((((10 + 20) / 2) + sum(m * 10 for m in range(2, 13))) / 12, 2)
     assert cum.loc["A1"] == ((1 + 2) / 2) + sum(range(2, 37))
+
+
+def test_metric_range_uses_only_selected_mobs():
+    raw = raw_fixture()
+    ranged = aggregate_metric_by_mob(raw[raw["account_id"] == "A1"], "account_id", "mob", "balance", "Average", 12, 6)
+    assert ranged.loc["A1"] == sum(mob * 10 for mob in range(6, 13)) / 7
+    metric = MetricConfig("Average Balance", "unused", "Primary", source_column="balance", aggregation_method="Average", mob_start=6, mob_horizon=12)
+    assert processed_metric_name(metric) == "avg_balance_mob6_12"
 
 
 def test_common_eligible_units_and_incomplete_history_diagnostics():

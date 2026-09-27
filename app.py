@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import numpy as np
 import pandas as pd
 import streamlit as st
 from datetime import datetime
@@ -18,6 +19,7 @@ from src.experiment_platform.assumptions import (
 )
 from src.experiment_platform.arm_selection import suggest_numeric_designs, validate_categorical_strategy, validate_numeric_strategy
 from src.experiment_platform.charts import bsts_counterfactual_chart, cumulative_impact_chart, detectable_effect_curve, forest_plot, geo_balance_chart, geo_dma_map, geo_trend_chart, historical_association, impact_chart, pre_post_bar, response_plot, time_series_line, timeseries_chart_context
+from src.experiment_platform.customer_planning import assign_group_labels, calculate_group_design, default_numeric_groups, suggest_group_designs
 from src.experiment_platform.data_access import load_geo_demo, load_raw_demo, load_results_demo, load_timeseries_demo, load_timeseries_planning_demo, load_uploaded_csv
 from src.experiment_platform.data_validation import data_quality_warnings, date_like_columns, first_series, infer_column, infer_mob_column, normalize_uploaded_dataset, safe_numeric_series
 from src.experiment_platform.decision import arm_decision_scorecard, experiment_recommendation, guardrail_status, recommendation_status
@@ -59,9 +61,9 @@ def init_state() -> None:
     st.session_state.setdefault(
         "metrics_config",
         {
-            "Primary": MetricConfig("Average Revolving Balance", "avg_revolving_balance_mob12", "Primary", "Continuous", "Higher is Better", "Absolute", 150.0, source_column="revolving_balance", processed_column="avg_revolving_balance_mob12", aggregation_method="Average", mob_horizon=12),
-            "Secondary": MetricConfig("Cumulative Revenue", "cum_revenue_mob36", "Secondary", "Continuous", "Higher is Better", "Relative %", 0.03, source_column="revenue", processed_column="cum_revenue_mob36", aggregation_method="Cumulative", mob_horizon=36),
-            "Guardrail": MetricConfig("Cumulative Loss", "cum_loss_mob36", "Guardrail", "Continuous", "Lower is Better", "Absolute", 50.0, guardrail_threshold=50.0, source_column="loss", processed_column="cum_loss_mob36", aggregation_method="Cumulative", mob_horizon=36),
+            "Primary": MetricConfig("Average Revolving Balance", "avg_revolving_balance_mob12", "Primary", "Continuous", "Higher is Better", "Relative %", 0.15, source_column="revolving_balance", processed_column="avg_revolving_balance_mob12", aggregation_method="Average", mob_horizon=12),
+            "Secondary": MetricConfig("Cumulative Revenue", "cum_revenue_mob36", "Secondary", "Continuous", "Higher is Better", "Relative %", 0.15, source_column="revenue", processed_column="cum_revenue_mob36", aggregation_method="Cumulative", mob_horizon=36),
+            "Guardrail": MetricConfig("Cumulative Loss", "cum_loss_mob36", "Guardrail", "Continuous", "Lower is Better", "Relative %", 0.15, guardrail_threshold=0.15, source_column="loss", processed_column="cum_loss_mob36", aggregation_method="Cumulative", mob_horizon=36),
         },
     )
     st.session_state.setdefault("data_mapping", DataMappingConfig())
@@ -92,6 +94,8 @@ def init_state() -> None:
         "outcome_delay_value": 0,
         "outcome_delay_unit": "Days",
         "arm_sample_sizes": {},
+        "max_enrollment_periods": 0,
+        "group_plan_rows": [],
     }.items():
         if not hasattr(st.session_state.design_config, field_name):
             setattr(st.session_state.design_config, field_name, default)
@@ -104,10 +108,29 @@ def init_state() -> None:
     st.session_state.setdefault("results_df", None)
     st.session_state.setdefault("analysis_results_by_role", {})
     st.session_state.setdefault("response_by_role", {})
+    st.session_state.setdefault("group_analysis_results", {})
+    st.session_state.setdefault("group_response_results", {})
     st.session_state.setdefault("historical_arm_stats_by_role", {})
     for metric in st.session_state.metrics_config.values():
         if not hasattr(metric, "observation_unit"):
             metric.observation_unit = "Months"
+        if not hasattr(metric, "mob_start"):
+            metric.mob_start = 1
+    population_defaults = PopulationConfig()
+    for field_name in ["grouping_column", "grouping_definitions", "group_settings"]:
+        if not hasattr(st.session_state.population_config, field_name):
+            setattr(st.session_state.population_config, field_name, getattr(population_defaults, field_name))
+    if not hasattr(st.session_state.strategy_config, "group_arms"):
+        st.session_state.strategy_config.group_arms = {}
+    if not st.session_state.get("customer_group_plan_migrated"):
+        for metric in st.session_state.metrics_config.values():
+            metric.effect_type = "Relative %"
+            metric.effect_value = 0.15
+            if metric.role == "Guardrail":
+                metric.guardrail_threshold = 0.15
+        st.session_state.design_config.sample_size_basis = "Power All Configured Metrics"
+        st.session_state.design_config.traffic_frequency = "Monthly"
+        st.session_state.customer_group_plan_migrated = True
     st.session_state.setdefault("customer_analysis_fingerprint", "")
     st.session_state.setdefault("customer_analysis_is_current", False)
     st.session_state.setdefault("ts_config", TimeSeriesConfig())
@@ -162,6 +185,108 @@ def duration_label(value: int, frequency: str) -> str:
 
 def default_column(columns: list[str], candidates: list[str], fallback: int = 0) -> str:
     return infer_column(columns, candidates, columns[fallback] if columns else "")
+
+
+def metric_window_label(metric: MetricConfig) -> str:
+    start = max(int(getattr(metric, "mob_start", 1)), 1)
+    return f"Through MOB {metric.mob_horizon}" if start == 1 else f"MOB {start} to MOB {metric.mob_horizon}"
+
+
+def grouping_candidates(raw_df: pd.DataFrame, unit_column: str, excluded: set[str]) -> list[str]:
+    if unit_column not in raw_df.columns:
+        return []
+    candidates = []
+    for column in raw_df.columns:
+        if column in excluded or column.startswith("_"):
+            continue
+        values = raw_df[[unit_column, column]].dropna(subset=[unit_column])
+        if values.empty:
+            continue
+        fixed = values.groupby(unit_column)[column].nunique(dropna=True).max() <= 1
+        unique = values[column].nunique(dropna=True)
+        if fixed and 1 < unique < max(values[unit_column].nunique(), 200):
+            candidates.append(column)
+    return candidates
+
+
+def group_labeled_history() -> pd.DataFrame:
+    data = st.session_state.historical_df.copy()
+    population: PopulationConfig = st.session_state.population_config
+    column = getattr(population, "grouping_column", "")
+    if not column or column not in data.columns:
+        data["_planning_group"] = "All customers"
+    else:
+        data["_planning_group"] = assign_group_labels(data[column], population.grouping_definitions)
+    return data.dropna(subset=["_planning_group"])
+
+
+def sync_group_settings(data: pd.DataFrame) -> None:
+    population: PopulationConfig = st.session_state.population_config
+    strategy: StrategyConfig = st.session_state.strategy_config
+    groups = data["_planning_group"].astype(str).drop_duplicates().tolist() if "_planning_group" in data else ["All customers"]
+    total = max(len(data), 1)
+    historical = pd.to_numeric(data.get(strategy.historical_column), errors="coerce") if strategy.historical_column in data else pd.Series(dtype=float)
+    overall_min = float(historical.min()) if not historical.empty and historical.notna().any() else float(strategy.min_value)
+    overall_max = float(historical.max()) if not historical.empty and historical.notna().any() else float(strategy.max_value)
+    updated = {}
+    for group in groups:
+        scoped = data[data["_planning_group"].astype(str) == group]
+        lines = pd.to_numeric(scoped.get(strategy.historical_column), errors="coerce").dropna() if strategy.historical_column in scoped else pd.Series(dtype=float)
+        minimum = float(lines.min()) if not lines.empty else overall_min
+        maximum = float(lines.max()) if not lines.empty else overall_max
+        control = float(lines.median()) if not lines.empty else (minimum + maximum) / 2
+        previous = population.group_settings.get(group, {})
+        updated[group] = {
+            "min_line": float(previous.get("min_line", minimum)),
+            "max_line": float(previous.get("max_line", maximum)),
+            "eligible_flow": int(previous.get("eligible_flow", max(1, round(st.session_state.design_config.eligible_customers * len(scoped) / total)))),
+            "control_line": float(previous.get("control_line", control)),
+            "treatment_lines": [float(value) for value in previous.get("treatment_lines", [])],
+            "selection_mode": str(previous.get("selection_mode", "Suggested lines")),
+        }
+    population.group_settings = updated
+
+
+def synthetic_group_results() -> pd.DataFrame:
+    design: DesignConfig = st.session_state.design_config
+    strategy: StrategyConfig = st.session_state.strategy_config
+    if not design.group_plan_rows:
+        return load_results_demo()
+    rng = np.random.default_rng(2026)
+    records = []
+    group_totals = {}
+    group_primary_baselines = {}
+    for row in design.group_plan_rows:
+        group_totals[str(row["Group"])] = group_totals.get(str(row["Group"]), 0) + int(row["Required Accounts"])
+        if str(row["Role"]) == "Control":
+            group_primary_baselines[str(row["Group"])] = float(row["Historical Mean"])
+    for plan_row in design.group_plan_rows:
+        group = str(plan_row["Group"])
+        line = float(plan_row["Line"])
+        role = str(plan_row["Role"])
+        scale = min(1.0, 900 / max(group_totals[group], 1))
+        count = max(2, int(round(int(plan_row["Required Accounts"]) * scale)))
+        for index in range(count):
+            record = {
+                "customer_id": f"{group}_{line:.0f}_{index:05d}",
+                "_planning_group": group,
+                strategy.assignment_column: line,
+            }
+            for metric in st.session_state.metrics_config.values():
+                baseline = metric.baseline_rate if metric.metric_type == "Binary" else metric.baseline_mean
+                if metric.role == "Primary":
+                    baseline = group_primary_baselines.get(group, float(plan_row["Historical Mean"]))
+                direction = -1 if metric.direction == "Lower is Better" else 1
+                effect = 0 if role == "Control" else direction * abs(float(metric.effect_value) * baseline) * 1.15
+                if metric.metric_type == "Binary":
+                    probability = min(max(baseline + effect, 0.001), 0.999)
+                    value = int(rng.binomial(1, probability))
+                else:
+                    standard_deviation = float(plan_row["Historical SD"]) if metric.role == "Primary" else max(float(metric.standard_deviation), abs(baseline) * 0.1, 1.0)
+                    value = float(rng.normal(baseline + effect, standard_deviation))
+                record[metric.source_column or metric.column] = value
+            records.append(record)
+    return pd.DataFrame(records)
 
 
 def bounded_date(value: str, minimum, maximum, fallback):
@@ -411,31 +536,52 @@ def customer_data_step() -> None:
     mapping.data_structure = st.radio("Dataset Structure", ["Longitudinal (unit x period)", "Cross-sectional (one row per unit)"], index=["Longitudinal (unit x period)", "Cross-sectional (one row per unit)"].index(mapping.data_structure), horizontal=True, key="customer_structure_v2")
     available_segments = sorted(raw_df[mapping.cpc_column].dropna().astype(str).unique().tolist()) if mapping.cpc_column else []
     if available_segments:
+        current_products = [value for value in population.selected_cpcs if value in available_segments]
+        if not current_products:
+            current_products = available_segments
+        population.selected_cpcs = st.multiselect(
+            "Products / Brands (CPC)",
+            available_segments,
+            default=current_products,
+            help="Choose any combination of products or brands to include in historical exploration and experiment planning.",
+            key="customer_product_scope_v3",
+        )
         if not population.selected_cpcs:
-            population.selected_cpcs = [value for value in ["CPC_A", "CPC_B"] if value in available_segments] or available_segments
-        population.selected_cpcs = st.multiselect("Population Segments", available_segments, default=[value for value in population.selected_cpcs if value in available_segments], key="customer_segments_v2")
+            st.error("Select at least one product or brand to continue.")
+            return
+        st.caption(f"Exploring {len(population.selected_cpcs)} of {len(available_segments)} products / brands.")
     else:
         population.selected_cpcs = []
-        st.caption("Population: all eligible units")
+        st.caption("Product / brand scope: all available records")
+
+    historical_period = "Not available"
+    if mapping.booking_date_column and mapping.booking_date_column in columns:
+        parsed = pd.to_datetime(raw_df[mapping.booking_date_column], errors="coerce")
+        if parsed.notna().any():
+            if mapping.data_structure == "Longitudinal (unit x period)" and mapping.mob_column in columns:
+                periods = safe_numeric_series(raw_df, mapping.mob_column).fillna(0).astype(int)
+                observation_periods = parsed.dt.to_period("M") + periods
+                historical_start = observation_periods.min().to_timestamp()
+                historical_end = observation_periods.max().to_timestamp()
+            else:
+                historical_start = parsed.min()
+                historical_end = parsed.max()
+            mapping.cutoff_date = historical_end.date().isoformat()
+            historical_period = f"{historical_start:%b %Y} to {historical_end:%b %Y}"
+    st.info(f"Historical data available: {historical_period}")
 
     with st.expander("Advanced Data Mapping", expanded=False):
         c1, c2 = st.columns(2)
         mapping.unit_id_column = c1.selectbox("Experimental Unit ID", columns, index=columns.index(mapping.unit_id_column), key="customer_unit_map_v2")
         segment_options = ["None"] + columns
-        selected_segment = c2.selectbox("Population Segment Column", segment_options, index=segment_options.index(mapping.cpc_column) if mapping.cpc_column in columns else 0, key="customer_segment_map_v2")
+        selected_segment = c2.selectbox("Product / Brand Column (CPC)", segment_options, index=segment_options.index(mapping.cpc_column) if mapping.cpc_column in columns else 0, key="customer_segment_map_v2")
         mapping.cpc_column = "" if selected_segment == "None" else selected_segment
         if mapping.data_structure == "Longitudinal (unit x period)":
-            c1, c2, c3 = st.columns(3)
+            c1, c2 = st.columns(2)
             mapping.mob_column = c1.selectbox("Observation Period", columns, index=columns.index(mapping.mob_column) if mapping.mob_column in columns else 0, key="customer_period_map_v2")
             date_options = ["None"] + dates
-            selected_date = c2.selectbox("Cohort Start Date", date_options, index=date_options.index(mapping.booking_date_column) if mapping.booking_date_column in dates else 0, key="customer_date_map_v2")
+            selected_date = c2.selectbox("Acquisition Date Column", date_options, index=date_options.index(mapping.booking_date_column) if mapping.booking_date_column in dates else 0, key="customer_date_map_v2")
             mapping.booking_date_column = "" if selected_date == "None" else selected_date
-            if mapping.booking_date_column and mapping.mob_column in columns:
-                parsed = pd.to_datetime(raw_df[mapping.booking_date_column], errors="coerce")
-                max_period = safe_numeric_series(raw_df, mapping.mob_column).max()
-                inferred_cutoff = parsed.max() + pd.DateOffset(months=int(max_period)) if parsed.notna().any() and pd.notna(max_period) else pd.Timestamp.today()
-                cutoff = pd.Timestamp(mapping.cutoff_date).date() if mapping.cutoff_date else inferred_cutoff.date()
-                mapping.cutoff_date = c3.date_input("Data Cutoff Date", value=cutoff, key="customer_cutoff_v2").isoformat()
 
     try:
         result = refresh_customer_processing()
@@ -447,7 +593,7 @@ def customer_data_step() -> None:
     c1.metric("Rows", f"{d['Raw Records']:,.0f}")
     c2.metric("Unique Units", f"{d['Unique Accounts']:,.0f}")
     c3.metric("Primary Eligible", f"{d['Final Analysis Population']:,.0f}")
-    c4.metric("Segments", f"{len(available_segments):,.0f}" if available_segments else "All")
+    c4.metric("Products / Brands", f"{len(population.selected_cpcs):,.0f}" if available_segments else "All")
     if d["Final Analysis Population"] == 0:
         st.error("No units are eligible for the primary metric. Review the population and observation window.")
     with st.expander("Eligibility Details", expanded=False):
@@ -468,18 +614,139 @@ def customer_data_step() -> None:
     else:
         display_names = {mapping.unit_id_column: "Experimental Unit"}
         if mapping.cpc_column:
-            display_names[mapping.cpc_column] = "Population Segment"
+            display_names[mapping.cpc_column] = "Product / Brand"
         for metric in st.session_state.metrics_config.values():
-            display_names[metric.processed_column] = f"{metric.name} ({'Through MOB ' + str(metric.mob_horizon) if mapping.data_structure.startswith('Longitudinal') else 'As observed'})"
+            display_names[metric.processed_column] = f"{metric.name} ({metric_window_label(metric) if mapping.data_structure.startswith('Longitudinal') else 'As observed'})"
         preview = result.analysis_df.head(20).rename(columns=display_names)
         caption = f"Showing 20 of {len(result.analysis_df):,.0f} analysis-ready units"
     st.caption(caption)
     st.dataframe(preview, use_container_width=True, height=460)
     if not result.cpc_breakdown.empty:
-        with st.expander("Population Segment Breakdown", expanded=False):
+        with st.expander("Product / Brand Breakdown", expanded=False):
             breakdown = result.cpc_breakdown.copy()
             breakdown["Share"] = breakdown["Share"].apply(lambda value: percent(value, 1))
             st.dataframe(breakdown, use_container_width=True, hide_index=True)
+
+
+def customer_groups_step() -> None:
+    st.subheader("Groups")
+    st.caption("Choose one customer grouping dimension. Planning and analysis will be calculated separately for every group.")
+    raw_df = st.session_state.raw_df
+    mapping: DataMappingConfig = st.session_state.data_mapping
+    population: PopulationConfig = st.session_state.population_config
+    strategy: StrategyConfig = st.session_state.strategy_config
+    excluded = {
+        mapping.unit_id_column,
+        mapping.mob_column,
+        mapping.booking_date_column,
+        mapping.cpc_column,
+        strategy.historical_column,
+        *[metric.source_column for metric in st.session_state.metrics_config.values()],
+    }
+    excluded.update(date_like_columns(raw_df))
+    candidates = grouping_candidates(raw_df, mapping.unit_id_column, excluded)
+    options = ["No grouping"] + candidates
+    current = population.grouping_column if population.grouping_column in candidates else "No grouping"
+    selected = st.selectbox(
+        "Group Customers By",
+        options,
+        index=options.index(current),
+        format_func=lambda value: value.replace("_", " ").title(),
+        help="Use one baseline customer characteristic, such as FICO band, risk level, or revenue band.",
+        key="customer_grouping_column_v1",
+    )
+    selected_column = "" if selected == "No grouping" else selected
+    signature = (selected_column, tuple(raw_df.columns), len(raw_df))
+    if st.session_state.get("customer_grouping_signature") != signature:
+        population.grouping_column = selected_column
+        population.group_settings = {}
+        strategy.group_arms = {}
+        if not selected_column:
+            population.grouping_definitions = []
+        else:
+            unit_values = raw_df[[mapping.unit_id_column, selected_column]].drop_duplicates(mapping.unit_id_column)[selected_column]
+            numeric_values = pd.to_numeric(unit_values, errors="coerce")
+            is_numeric_group = numeric_values.notna().mean() > 0.95 and numeric_values.nunique() > 12
+            if is_numeric_group:
+                population.grouping_definitions = default_numeric_groups(numeric_values, selected_column)
+            else:
+                population.grouping_definitions = [
+                    {"label": str(value), "value": str(value)}
+                    for value in sorted(unit_values.dropna().astype(str).unique().tolist())
+                ]
+        st.session_state.customer_grouping_signature = signature
+
+    if population.grouping_definitions and "lower" in population.grouping_definitions[0]:
+        st.markdown("**Group Bands**")
+        bands = pd.DataFrame(
+            [
+                {"Group": item["label"], "Minimum": float(item["lower"]), "Maximum": float(item["upper"])}
+                for item in population.grouping_definitions
+            ]
+        )
+        edited_bands = st.data_editor(
+            bands,
+            use_container_width=True,
+            hide_index=True,
+            num_rows="fixed",
+            column_config={
+                "Group": st.column_config.TextColumn("Group", required=True),
+                "Minimum": st.column_config.NumberColumn("Minimum", required=True),
+                "Maximum": st.column_config.NumberColumn("Maximum", required=True),
+            },
+            key="customer_group_bands_v1",
+        )
+        valid_bands = edited_bands.dropna(subset=["Group", "Minimum", "Maximum"])
+        population.grouping_definitions = [
+            {"label": str(row["Group"]), "lower": float(row["Minimum"]), "upper": float(row["Maximum"])}
+            for _, row in valid_bands.iterrows()
+        ]
+
+    try:
+        refresh_customer_processing()
+    except ValueError as exc:
+        st.error(str(exc))
+        return
+    grouped = group_labeled_history()
+    sync_group_settings(grouped)
+    counts = grouped.groupby("_planning_group", sort=False).size().to_dict()
+    rows = []
+    for group, settings in population.group_settings.items():
+        rows.append(
+            {
+                "Group": group,
+                "Historical Accounts": int(counts.get(group, 0)),
+                "Minimum Test Line": float(settings["min_line"]),
+                "Maximum Test Line": float(settings["max_line"]),
+                f"Eligible Flow per {duration_unit(st.session_state.design_config.traffic_frequency).title()}": int(settings["eligible_flow"]),
+            }
+        )
+    st.markdown("**Business Test Range and Traffic**")
+    flow_column = f"Eligible Flow per {duration_unit(st.session_state.design_config.traffic_frequency).title()}"
+    edited = st.data_editor(
+        pd.DataFrame(rows),
+        use_container_width=True,
+        hide_index=True,
+        num_rows="fixed",
+        disabled=["Group", "Historical Accounts"],
+        column_config={
+            "Group": st.column_config.TextColumn("Group"),
+            "Historical Accounts": st.column_config.NumberColumn("Historical Accounts", format="%d"),
+            "Minimum Test Line": st.column_config.NumberColumn("Minimum Test Line", required=True),
+            "Maximum Test Line": st.column_config.NumberColumn("Maximum Test Line", required=True),
+            flow_column: st.column_config.NumberColumn(flow_column, min_value=1, required=True, format="%d"),
+        },
+        key="customer_group_settings_v1",
+    )
+    for _, row in edited.iterrows():
+        group = str(row["Group"])
+        settings = population.group_settings[group]
+        settings["min_line"] = float(row["Minimum Test Line"])
+        settings["max_line"] = float(row["Maximum Test Line"])
+        settings["eligible_flow"] = int(row[flow_column])
+        if settings["min_line"] >= settings["max_line"]:
+            st.error(f"{group}: minimum test line must be below maximum test line.")
+    st.caption("The business range limits recommendations. Sparse historical evidence produces a warning, but it does not silently change these limits.")
 
 
 def configure_metric_panel(role: str, raw_df: pd.DataFrame) -> None:
@@ -494,9 +761,21 @@ def configure_metric_panel(role: str, raw_df: pd.DataFrame) -> None:
     if st.session_state.data_mapping.data_structure == "Longitudinal (unit x period)":
         mob_col = st.session_state.data_mapping.mob_column
         periods = sorted(pd.to_numeric(raw_df[mob_col], errors="coerce").dropna().astype(int).unique().tolist()) if mob_col in raw_df.columns else [12]
-        c1, c2 = st.columns(2)
+        cfg.mob_start = max(int(getattr(cfg, "mob_start", 1)), 1)
+        c1, c2, c3 = st.columns(3)
         cfg.aggregation_method = c1.selectbox("Unit-Level Aggregation", ["Average", "Cumulative"], index=["Average", "Cumulative"].index(cfg.aggregation_method), key=f"metric_panel_agg_{role}")
-        cfg.mob_horizon = int(c2.selectbox("Observation Window", periods, index=periods.index(cfg.mob_horizon) if cfg.mob_horizon in periods else 0, format_func=lambda value: f"Through MOB {value}", key=f"metric_panel_window_{role}"))
+        window_mode = c2.selectbox(
+            "Observation Window",
+            ["Through MOB", "From MOB to MOB"],
+            index=0 if cfg.mob_start == 1 else 1,
+            key=f"metric_panel_window_mode_{role}",
+        )
+        cfg.mob_horizon = int(c3.selectbox("End MOB", periods, index=periods.index(cfg.mob_horizon) if cfg.mob_horizon in periods else 0, key=f"metric_panel_window_end_{role}"))
+        if window_mode == "From MOB to MOB":
+            valid_starts = [period for period in periods if period <= cfg.mob_horizon]
+            cfg.mob_start = int(c2.selectbox("Start MOB", valid_starts, index=valid_starts.index(cfg.mob_start) if cfg.mob_start in valid_starts else 0, key=f"metric_panel_window_start_{role}"))
+        else:
+            cfg.mob_start = 1
     else:
         cfg.aggregation_method = "Average"
         st.caption("One outcome value per experimental unit")
@@ -531,11 +810,11 @@ def customer_metrics_step() -> None:
     secondary_enabled = c1.checkbox("Include Secondary Metric", value="Secondary" in st.session_state.metrics_config, key="enable_secondary_v2")
     guardrail_enabled = c2.checkbox("Include Guardrail Metric", value="Guardrail" in st.session_state.metrics_config, key="enable_guardrail_v2")
     if secondary_enabled:
-        st.session_state.metrics_config.setdefault("Secondary", MetricConfig("Revenue", "revenue", "Secondary", source_column="revenue", aggregation_method="Cumulative", mob_horizon=36))
+        st.session_state.metrics_config.setdefault("Secondary", MetricConfig("Revenue", "revenue", "Secondary", effect_type="Relative %", effect_value=0.15, source_column="revenue", aggregation_method="Cumulative", mob_horizon=36))
     else:
         st.session_state.metrics_config.pop("Secondary", None)
     if guardrail_enabled:
-        st.session_state.metrics_config.setdefault("Guardrail", MetricConfig("Loss", "loss", "Guardrail", direction="Lower is Better", source_column="loss", aggregation_method="Cumulative", mob_horizon=36))
+        st.session_state.metrics_config.setdefault("Guardrail", MetricConfig("Loss", "loss", "Guardrail", direction="Lower is Better", effect_type="Relative %", effect_value=0.15, guardrail_threshold=0.15, source_column="loss", aggregation_method="Cumulative", mob_horizon=36))
     else:
         st.session_state.metrics_config.pop("Guardrail", None)
     roles = [role for role in ["Primary", "Secondary", "Guardrail"] if role in st.session_state.metrics_config]
@@ -558,14 +837,15 @@ def customer_metrics_step() -> None:
     st.markdown("**Historical Assumptions**")
     st.dataframe(summary, use_container_width=True, hide_index=True)
     if summary["Eligible N"].nunique() > 1:
-        st.caption("Eligible sample sizes differ because each metric uses its own observation window. Primary planning uses the primary metric cohort unless configured otherwise in Design.")
+        st.caption("Eligible sample sizes differ because each metric uses its own observation window. The Plan uses all configured metrics by default.")
 
     strategy: StrategyConfig = st.session_state.strategy_config
     historical_df = result.analysis_df
+    grouped_history = group_labeled_history()
     historical_column = strategy.historical_column
     if strategy.strategy_type == "Numeric Strategy" and historical_column in historical_df.columns:
         st.markdown("**Metric History by Acquisition Line**")
-        curve_left, curve_middle = st.columns([1.15, 1])
+        curve_left, curve_middle, curve_right = st.columns([1.15, 1, 1])
         binning_options = ["Automatic fine bins", "Fixed bin width", "Equal-count bins"]
         strategy.curve_binning_method = curve_left.selectbox(
             "Curve Binning",
@@ -585,27 +865,53 @@ def customer_metrics_step() -> None:
             strategy.curve_bin_count = int(curve_middle.number_input("Number of Bins", min_value=4, max_value=50, value=int(strategy.curve_bin_count), step=1, key="metric_curve_count_v4"))
         else:
             curve_middle.caption("Uses 6–30 fine bins based on the eligible customer count.")
-        visual_tabs = st.tabs([f"{role}: {st.session_state.metrics_config[role].name}" for role in roles])
-        for visual_tab, role in zip(visual_tabs, roles):
-            with visual_tab:
-                metric = st.session_state.metrics_config[role]
-                metric_column = metric.processed_column or metric.column
-                st.plotly_chart(
-                    historical_association(
-                        historical_df,
-                        historical_column,
-                        metric_column,
-                        metric.metric_type,
-                        strategy_label=strategy.strategy_name,
-                        metric_label=metric.name,
-                        binning_method=strategy.curve_binning_method,
-                        bin_width=float(strategy.curve_bin_width),
-                        bin_count=int(strategy.curve_bin_count),
-                    ),
-                    use_container_width=True,
-                    key=f"metric_history_chart_{role}_v4",
-                )
+        group_options = ["All groups"] + grouped_history["_planning_group"].astype(str).drop_duplicates().tolist()
+        selected_group = curve_right.selectbox("Customer Group Shown", group_options, key="metric_history_group_v1")
+        chart_history = grouped_history if selected_group == "All groups" else grouped_history[grouped_history["_planning_group"].astype(str) == selected_group]
+        for index in range(0, len(roles), 2):
+            chart_columns = st.columns(2)
+            for column, role in zip(chart_columns, roles[index : index + 2]):
+                with column:
+                    metric = st.session_state.metrics_config[role]
+                    metric_column = metric.processed_column or metric.column
+                    st.markdown(f"**{role}: {metric.name}**")
+                    st.caption(metric_window_label(metric))
+                    st.plotly_chart(
+                        historical_association(
+                            chart_history,
+                            historical_column,
+                            metric_column,
+                            metric.metric_type,
+                            strategy_label=strategy.strategy_name,
+                            metric_label=metric.name,
+                            binning_method=strategy.curve_binning_method,
+                            bin_width=float(strategy.curve_bin_width),
+                            bin_count=int(strategy.curve_bin_count),
+                        ),
+                        use_container_width=True,
+                        key=f"metric_history_chart_{role}_v5",
+                    )
         st.caption("The line connects fine-bin historical means; vertical intervals are 95% confidence intervals. These are descriptive historical associations, not causal estimates.")
+        with st.expander("Group-Level Historical Summary", expanded=False):
+            group_rows = []
+            for group, scoped in grouped_history.groupby("_planning_group", sort=False):
+                for role in roles:
+                    metric = st.session_state.metrics_config[role]
+                    values = pd.to_numeric(scoped[metric.processed_column or metric.column], errors="coerce").dropna()
+                    group_rows.append(
+                        {
+                            "Group": group,
+                            "Role": role,
+                            "Metric": metric.name,
+                            "Historical Accounts": len(values),
+                            "Average": values.mean(),
+                            "SD": values.std(ddof=1),
+                        }
+                    )
+            shown_groups = pd.DataFrame(group_rows)
+            shown_groups["Average"] = shown_groups["Average"].round(2)
+            shown_groups["SD"] = shown_groups["SD"].round(2)
+            st.dataframe(shown_groups, use_container_width=True, hide_index=True)
 
 
 def data_metrics_step() -> None:
@@ -1031,6 +1337,272 @@ def strategy_step() -> None:
     st.caption(f"{len(treatments) + 1} arms · 1 control · {len(treatments)} treatments")
 
 
+def customer_plan_step() -> None:
+    st.subheader("Plan")
+    strategy: StrategyConfig = st.session_state.strategy_config
+    design: DesignConfig = st.session_state.design_config
+    primary = st.session_state.metrics_config["Primary"]
+    historical_df = st.session_state.historical_df
+    if historical_df.empty:
+        st.info("Configure Data, Groups, and Metrics before planning the experiment.")
+        return
+
+    st.markdown("**Planning Assumptions**")
+    c1, c2, c3, c4 = st.columns(4)
+    design.alpha = c1.number_input("False-positive Rate", min_value=0.001, max_value=0.25, value=float(design.alpha), step=0.005, format="%.3f", key="group_plan_alpha_v1")
+    design.target_power = c2.number_input("Detection Chance", min_value=0.5, max_value=0.99, value=float(design.target_power), step=0.01, format="%.2f", key="group_plan_power_v1")
+    primary.effect_type = "Relative %"
+    shown_effect = c3.number_input(
+        "Smallest Effect Worth Detecting (%)",
+        min_value=0.1,
+        max_value=100.0,
+        value=float(primary.effect_value) * 100,
+        step=0.5,
+        help="The smallest relative difference from BAU that would justify a business decision. Smaller effects require more accounts. This is a planning threshold, not a forecast.",
+        key="group_plan_mde_v1",
+    )
+    primary.effect_value = shown_effect / 100
+    frequency_options = ["Monthly", "Weekly", "Daily"]
+    design.traffic_frequency = c4.selectbox(
+        "Traffic Frequency",
+        frequency_options,
+        index=frequency_options.index(design.traffic_frequency) if design.traffic_frequency in frequency_options else 0,
+        key="group_plan_frequency_v1",
+    )
+    default_window = int(primary.mob_horizon) if st.session_state.data_mapping.data_structure.startswith("Longitudinal") else 12
+    if design.max_enrollment_periods <= 0:
+        design.max_enrollment_periods = default_window
+    design.max_enrollment_periods = int(
+        st.number_input(
+            f"Maximum Test Duration ({duration_unit(design.traffic_frequency)}s)",
+            min_value=1,
+            value=int(design.max_enrollment_periods),
+            step=1,
+            help="The longest period available to enroll the required accounts. It does not include outcome maturity time.",
+            key="group_plan_max_duration_v1",
+        )
+    )
+    with st.expander("Metric Planning Thresholds", expanded=False):
+        threshold_rows = []
+        for metric in st.session_state.metrics_config.values():
+            metric.effect_type = "Relative %"
+            if metric.role != "Primary":
+                threshold_rows.append({"Role": metric.role, "Metric": metric.name, "Smallest Effect (%)": float(metric.effect_value) * 100})
+        edited_thresholds = st.data_editor(
+            pd.DataFrame(threshold_rows),
+            use_container_width=True,
+            hide_index=True,
+            disabled=["Role", "Metric"],
+            column_config={"Smallest Effect (%)": st.column_config.NumberColumn("Smallest Effect (%)", min_value=0.1, max_value=100.0, required=True)},
+            key="group_metric_thresholds_v1",
+        )
+        for _, row in edited_thresholds.iterrows():
+            metric = st.session_state.metrics_config[str(row["Role"])]
+            metric.effect_value = float(row["Smallest Effect (%)"]) / 100
+            if metric.role == "Guardrail":
+                metric.guardrail_threshold = metric.effect_value
+    with st.expander("Advanced Statistical Settings", expanded=False):
+        design.sample_size_basis = st.selectbox(
+            "Metrics Included in Sample Planning",
+            ["Power All Configured Metrics", "Primary Metric Only"],
+            index=0 if design.sample_size_basis == "Power All Configured Metrics" else 1,
+            key="group_plan_metric_basis_v1",
+        )
+        design.multiplicity_method = st.selectbox("Multiple-Comparison Control", ["Holm", "None"], index=0 if design.multiplicity_method == "Holm" else 1, key="group_plan_multiplicity_v1")
+        design.attrition_rate = st.number_input("Expected Missing Outcomes", min_value=0.0, max_value=0.8, value=float(design.attrition_rate), step=0.01, format="%.2f", key="group_plan_attrition_v1")
+
+    st.markdown("**Treatment Lines by Group**")
+    numeric = numeric_columns(st.session_state.raw_df)
+    if not numeric:
+        st.error("A numeric historical treatment-line column is required for this planning workflow.")
+        return
+    strategy.strategy_name = st.text_input("Treatment Dimension", strategy.strategy_name, key="group_plan_treatment_name_v1")
+    strategy.historical_column = st.selectbox(
+        "Historical Treatment Line Column",
+        numeric,
+        index=numeric.index(strategy.historical_column) if strategy.historical_column in numeric else 0,
+        help="This value must remain fixed for each customer in the historical data.",
+        key="group_plan_historical_line_v1",
+    )
+    try:
+        refresh_customer_processing()
+    except ValueError as exc:
+        st.error(str(exc))
+        return
+    grouped = group_labeled_history()
+    sync_group_settings(grouped)
+    population: PopulationConfig = st.session_state.population_config
+    group_names = list(population.group_settings)
+    if not group_names:
+        st.error("No customer groups are available for planning.")
+        return
+
+    all_plan_rows: list[dict] = []
+    all_comparisons: list[dict] = []
+    binding_labels: list[str] = []
+    group_tabs = st.tabs(group_names)
+    for group_index, (tab, group) in enumerate(zip(group_tabs, group_names)):
+        with tab:
+            settings = population.group_settings[group]
+            scoped = grouped[grouped["_planning_group"].astype(str) == group].copy()
+            summary_left, summary_middle, summary_right = st.columns(3)
+            summary_left.metric("Historical Accounts", f"{len(scoped):,.0f}")
+            summary_middle.metric("Business Test Range", f"{maybe_money(settings['min_line'])} to {maybe_money(settings['max_line'])}")
+            summary_right.metric(f"Eligible Flow / {duration_unit(design.traffic_frequency).title()}", f"{settings['eligible_flow']:,.0f}")
+            top_left, top_right = st.columns(2)
+            settings["control_line"] = top_left.number_input(
+                "BAU Line",
+                min_value=float(settings["min_line"]),
+                max_value=float(settings["max_line"]),
+                value=min(max(float(settings["control_line"]), float(settings["min_line"])), float(settings["max_line"])),
+                key=f"group_bau_{group_index}_v1",
+            )
+            settings["selection_mode"] = top_right.radio(
+                "Line Selection",
+                ["Suggested lines", "Manual lines"],
+                index=0 if settings["selection_mode"] == "Suggested lines" else 1,
+                horizontal=True,
+                key=f"group_line_mode_{group_index}_v1",
+            )
+            if settings["selection_mode"] == "Suggested lines":
+                treatment_count = int(
+                    st.number_input(
+                        "Number of Treatment Lines",
+                        min_value=1,
+                        max_value=4,
+                        value=max(1, len(settings["treatment_lines"]) or 2),
+                        step=1,
+                        key=f"group_treatment_count_{group_index}_v1",
+                    )
+                )
+                suggestions = suggest_group_designs(
+                    scoped,
+                    strategy.historical_column,
+                    st.session_state.metrics_config,
+                    design,
+                    float(settings["control_line"]),
+                    float(settings["min_line"]),
+                    float(settings["max_line"]),
+                    treatment_count,
+                    float(settings["eligible_flow"]),
+                    int(design.max_enrollment_periods),
+                )
+                if suggestions.empty:
+                    st.warning("No statistically usable suggestion is available inside this business range. Expand the range or choose lines manually.")
+                    settings["treatment_lines"] = []
+                else:
+                    labels = [" and ".join(f"{float(value):,.0f}" for value in values) for values in suggestions["Suggested Treatments"]]
+                    current_label = next((label for label, values in zip(labels, suggestions["Suggested Treatments"]) if list(values) == list(settings["treatment_lines"])), labels[0])
+                    selected_label = st.radio("Suggested Lines", labels, index=labels.index(current_label), key=f"group_suggestion_{group_index}_v1")
+                    selected_row = suggestions.iloc[labels.index(selected_label)]
+                    settings["treatment_lines"] = [float(value) for value in selected_row["Suggested Treatments"]]
+                    shown = suggestions[["Suggested Treatments", "Required Accounts", "Test Duration", "Within Window"]].copy()
+                    shown["Suggested Treatments"] = shown["Suggested Treatments"].map(lambda values: ", ".join(maybe_money(value) for value in values))
+                    shown["Test Duration"] = shown["Test Duration"].map(lambda value: duration_label(int(math.ceil(value)), design.traffic_frequency))
+                    shown["Within Window"] = shown["Within Window"].map({True: "Fits", False: "Too long"})
+                    st.dataframe(shown.rename(columns={"Within Window": "Enrollment Window"}), use_container_width=True, hide_index=True)
+            else:
+                manual_values = settings["treatment_lines"] or [float(settings["min_line"]), float(settings["max_line"])]
+                edited_lines = st.data_editor(
+                    pd.DataFrame({"Treatment Line": manual_values}),
+                    use_container_width=True,
+                    hide_index=True,
+                    num_rows="dynamic",
+                    column_config={"Treatment Line": st.column_config.NumberColumn("Treatment Line", min_value=float(settings["min_line"]), max_value=float(settings["max_line"]), required=True)},
+                    key=f"group_manual_lines_{group_index}_v1",
+                )
+                settings["treatment_lines"] = [float(value) for value in edited_lines["Treatment Line"].dropna().tolist()]
+
+            treatments = list(dict.fromkeys(float(value) for value in settings["treatment_lines"] if not math.isclose(float(value), float(settings["control_line"]))))
+            settings["treatment_lines"] = treatments
+            strategy.group_arms[group] = {"control": float(settings["control_line"]), "treatments": treatments}
+            if not treatments:
+                st.info("Choose at least one treatment line to calculate this group’s sample plan.")
+                continue
+            points = [float(settings["control_line"]), *treatments]
+            labels = [f"BAU: {maybe_money(settings['control_line'])}"] + [f"Treatment {index + 1}: {maybe_money(value)}" for index, value in enumerate(treatments)]
+            st.plotly_chart(
+                historical_association(
+                    scoped,
+                    strategy.historical_column,
+                    primary.processed_column or primary.column,
+                    primary.metric_type,
+                    strategy_points=points,
+                    strategy_label=strategy.strategy_name,
+                    metric_label=primary.name,
+                    binning_method=strategy.curve_binning_method,
+                    bin_width=float(strategy.curve_bin_width),
+                    bin_count=int(strategy.curve_bin_count),
+                    strategy_point_labels=labels,
+                ),
+                use_container_width=True,
+                key=f"group_plan_chart_{group_index}_v1",
+            )
+            try:
+                plan_rows, comparisons, binding = calculate_group_design(
+                    scoped,
+                    strategy.historical_column,
+                    st.session_state.metrics_config,
+                    design,
+                    float(settings["control_line"]),
+                    treatments,
+                    float(settings["eligible_flow"]),
+                    group,
+                )
+                all_plan_rows.extend(plan_rows)
+                all_comparisons.extend([{**row, "Group": group} for row in comparisons])
+                binding_labels.append(f"{group}: {binding}")
+            except ValueError as exc:
+                st.error(str(exc))
+
+    if not all_plan_rows:
+        design.group_plan_rows = []
+        design.required_n_per_arm = 0
+        design.total_sample_size = 0
+        return
+    plan_signature = tuple(
+        (str(row["Group"]), float(row["Line"]), int(row["Required Accounts"]), round(float(row["Traffic Allocation"]), 8))
+        for row in all_plan_rows
+    )
+    if st.session_state.get("customer_group_plan_signature") not in {None, plan_signature}:
+        st.session_state.group_analysis_results = {}
+        st.session_state.group_response_results = {}
+    st.session_state.customer_group_plan_signature = plan_signature
+    design.group_plan_rows = all_plan_rows
+    design.total_sample_size = sum(int(row["Required Accounts"]) for row in all_plan_rows)
+    design.required_n_per_arm = max(int(row["Required Accounts"]) for row in all_plan_rows)
+    design.binding_metric = "; ".join(binding_labels)
+    total_duration = max(float(row["Test Duration"]) for row in all_plan_rows)
+    st.markdown("**Recommended Test Plan**")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Required Accounts", f"{design.total_sample_size:,.0f}")
+    m2.metric("Longest Test Duration", duration_label(int(math.ceil(total_duration)), design.traffic_frequency))
+    m3.metric("Customer Groups", f"{len(group_names):,.0f}")
+    output = pd.DataFrame(all_plan_rows)[["Group", "Line", "Required Accounts", "Traffic Allocation", "Flow per Period", "Test Duration"]].copy()
+    output["Line"] = output["Line"].map(maybe_money)
+    output["Traffic Allocation"] = output["Traffic Allocation"].map(lambda value: percent(value, 1))
+    flow_label = f"Flow per {duration_unit(design.traffic_frequency).title()}"
+    output["Flow per Period"] = output["Flow per Period"].map(lambda value: f"{value:,.1f}")
+    output["Test Duration"] = output["Test Duration"].map(lambda value: duration_label(int(math.ceil(value)), design.traffic_frequency))
+    output = output.rename(columns={"Flow per Period": flow_label})
+    st.dataframe(output, use_container_width=True, hide_index=True)
+    if total_duration > design.max_enrollment_periods:
+        st.warning(
+            f"This design needs about {duration_label(int(math.ceil(total_duration)), design.traffic_frequency)}, "
+            f"which is longer than the {duration_label(design.max_enrollment_periods, design.traffic_frequency)} enrollment window. "
+            "Reduce the number of lines, expand eligible traffic, increase the detectable-effect threshold, or allow a longer test."
+        )
+    else:
+        st.success(f"All groups can collect their required samples within {duration_label(design.max_enrollment_periods, design.traffic_frequency)}.")
+    with st.expander("Planning Methodology", expanded=False):
+        st.write("Historical customers are assigned to the closest proposed line within each customer group. Means and standard deviations are estimated separately for every group and line.")
+        st.write("Traffic allocation uses the required account targets so the lines within each group finish at approximately the same time.")
+        if all_comparisons:
+            detail = pd.DataFrame(all_comparisons)
+            detail["Planned Power"] = detail["Planned Power"].map(lambda value: percent(value, 1))
+            st.dataframe(detail, use_container_width=True, hide_index=True)
+
+
 def metrics_step() -> None:
     st.subheader("Experiment Metrics")
     raw_df = st.session_state.raw_df
@@ -1350,6 +1922,182 @@ def design_step() -> None:
         if binding_primary is not None:
             st.caption(f"Sensitivity curve uses the most demanding primary comparison: {binding_primary['Comparison']}.")
         st.plotly_chart(detectable_effect_curve(pd.DataFrame(curve_rows), analyzable_n_per_arm), use_container_width=True)
+
+
+def customer_group_analysis_step() -> None:
+    st.subheader("Analyze")
+    strategy: StrategyConfig = st.session_state.strategy_config
+    design: DesignConfig = st.session_state.design_config
+    population: PopulationConfig = st.session_state.population_config
+    if not strategy.group_arms or not design.group_plan_rows:
+        st.info("Complete the Plan before analyzing experiment results.")
+        return
+    source = st.radio("Experiment Result Data Source", ["Upload File", "Internal Data", "Synthetic Demo"], index=2, horizontal=True, key="group_analysis_source_v1")
+    if source == "Upload File":
+        uploaded = st.file_uploader("Upload Experiment Results", type=["csv", "parquet"], key="group_analysis_upload_v1")
+        if uploaded is not None:
+            signature = hash(uploaded.getvalue())
+            if st.session_state.get("group_results_upload_signature") != signature:
+                uploaded.seek(0)
+                st.session_state.results_df = pd.read_parquet(uploaded) if uploaded.name.endswith(".parquet") else load_uploaded_csv(uploaded)
+                st.session_state.group_results_upload_signature = signature
+                st.session_state.group_analysis_results = {}
+    elif source == "Synthetic Demo":
+        st.session_state.results_df = synthetic_group_results()
+    else:
+        st.info("Internal result-data access will use the future Databricks connector.")
+        return
+    df = st.session_state.results_df
+    if df is None or df.empty:
+        st.info("Load experiment-result data to run the analysis.")
+        return
+    columns = list(df.columns)
+    analysis_config: AnalysisConfig = st.session_state.analysis_config
+    default_unit = analysis_config.unit_id_column if analysis_config.unit_id_column in columns else next((column for column in columns if column.lower() in {"customer_id", "account_id", "user_id", "member_id"}), columns[0])
+    default_assignment = strategy.assignment_column if strategy.assignment_column in columns else next((column for column in columns if "assign" in column.lower()), columns[0])
+    default_group = "_planning_group" if "_planning_group" in columns else population.grouping_column if population.grouping_column in columns else ""
+    mapping_columns = st.columns(3)
+    analysis_config.unit_id_column = mapping_columns[0].selectbox("Experimental Unit ID", columns, index=columns.index(default_unit), key="group_analysis_unit_v1")
+    assignment_column = mapping_columns[1].selectbox("Assignment Column", columns, index=columns.index(default_assignment), key="group_analysis_assignment_v1")
+    group_options = ["No grouping column"] + columns
+    selected_group_column = mapping_columns[2].selectbox("Customer Group Column", group_options, index=group_options.index(default_group) if default_group in columns else 0, key="group_analysis_group_v1")
+    if len(strategy.group_arms) > 1 and selected_group_column == "No grouping column":
+        st.error("A customer group column is required because this experiment has group-specific treatment lines.")
+        return
+    analysis_df = df.copy()
+    if selected_group_column == "_planning_group":
+        analysis_df["_analysis_group"] = analysis_df[selected_group_column].astype(str)
+    elif selected_group_column != "No grouping column":
+        if population.grouping_definitions and "lower" in population.grouping_definitions[0]:
+            analysis_df["_analysis_group"] = assign_group_labels(analysis_df[selected_group_column], population.grouping_definitions)
+        else:
+            analysis_df["_analysis_group"] = analysis_df[selected_group_column].astype(str)
+    else:
+        analysis_df["_analysis_group"] = "All customers"
+
+    numeric_result_columns = [column for column in numeric_columns(analysis_df) if column != assignment_column]
+    result_columns = {}
+    used = set()
+    for role, metric in st.session_state.metrics_config.items():
+        preferred = next((column for column in [metric.source_column, metric.processed_column, metric.column] if column in numeric_result_columns and column not in used), None)
+        preferred = preferred or next((column for column in numeric_result_columns if column not in used), numeric_result_columns[0] if numeric_result_columns else "")
+        if not preferred:
+            st.error("No numeric result columns are available for analysis.")
+            return
+        result_columns[role] = st.selectbox(f"{role} Result Column", numeric_result_columns, index=numeric_result_columns.index(preferred), key=f"group_result_column_{role}_v1")
+        used.add(result_columns[role])
+
+    validation_messages = []
+    group_frames = {}
+    for group, arms in strategy.group_arms.items():
+        scoped = analysis_df[analysis_df["_analysis_group"].astype(str) == str(group)].copy()
+        control = arms["control"]
+        treatments = list(arms["treatments"])
+        outcomes = {role: (result_columns[role], metric.metric_type) for role, metric in st.session_state.metrics_config.items()}
+        expected_shares = {
+            row["Line"]: row["Traffic Allocation"]
+            for row in design.group_plan_rows
+            if str(row["Group"]) == str(group)
+        }
+        errors, warnings = validate_analysis_data(scoped, assignment_column, outcomes, control, treatments, analysis_config.unit_id_column, expected_shares)
+        validation_messages.extend(("error", f"{group}: {message}") for message in errors)
+        validation_messages.extend(("warning", f"{group}: {message}") for message in warnings)
+        group_frames[group] = scoped
+    for level, message in validation_messages:
+        if level == "error":
+            st.error(message)
+        else:
+            st.warning(message)
+    blocking = any(level == "error" for level, _ in validation_messages)
+    if st.button("Run Group Analysis", type="primary", disabled=blocking, key="run_group_analysis_v1"):
+        by_group, responses_by_group = {}, {}
+        for group, scoped in group_frames.items():
+            arms = strategy.group_arms[group]
+            control, treatments = arms["control"], list(arms["treatments"])
+            by_role, responses = {}, {}
+            for role, metric in st.session_state.metrics_config.items():
+                column = result_columns[role]
+                result = (
+                    binary_results(scoped, assignment_column, column, control, treatments, design.alpha, design.multiplicity_method)
+                    if metric.metric_type == "Binary"
+                    else continuous_results(scoped, assignment_column, column, control, treatments, design.alpha, design.multiplicity_method)
+                )
+                by_role[role] = result
+                responses[role] = response_summary(scoped, assignment_column, column, design.alpha, metric.metric_type)
+            by_group[group] = by_role
+            responses_by_group[group] = responses
+        st.session_state.group_analysis_results = by_group
+        st.session_state.group_response_results = responses_by_group
+        st.session_state.analysis_results_by_role = next(iter(by_group.values()), {})
+        st.session_state.customer_analysis_is_current = True
+        st.rerun()
+    results_by_group = st.session_state.group_analysis_results
+    if not results_by_group:
+        return
+    result_tabs = st.tabs(list(results_by_group))
+    for group_index, (tab, group) in enumerate(zip(result_tabs, results_by_group)):
+        with tab:
+            scoped = group_frames.get(group, pd.DataFrame())
+            arms = strategy.group_arms[group]
+            outcomes = {role: (result_columns[role], metric.metric_type) for role, metric in st.session_state.metrics_config.items()}
+            expected_shares = {
+                row["Line"]: row["Traffic Allocation"]
+                for row in design.group_plan_rows
+                if str(row["Group"]) == str(group)
+            }
+            integrity = analysis_integrity_summary(scoped, assignment_column, outcomes, [arms["control"], *arms["treatments"]], analysis_config.unit_id_column, expected_shares)
+            i1, i2, i3 = st.columns(3)
+            i1.metric("Analysis Accounts", f"{integrity['unique_units']:,}")
+            i2.metric("Assignment Balance", integrity["srm_status"])
+            i3.metric("Missing Primary", f"{integrity['missing_by_metric'].get('Primary', 0):,}")
+            roles = list(results_by_group[group])
+            view_role = st.selectbox("Result Metric", roles, format_func=lambda role: f"{role}: {st.session_state.metrics_config[role].name}", key=f"group_result_role_{group_index}_v1")
+            result = results_by_group[group][view_role]
+            metric = st.session_state.metrics_config[view_role]
+            table = format_effect_table(result, metric.metric_type, strategy.strategy_name)
+            if view_role == "Guardrail":
+                threshold = guardrail_absolute_threshold(metric)
+                table["Guardrail Status"] = result.apply(lambda row: "Control" if row["Is Control"] else guardrail_status(row, threshold, metric.direction), axis=1)
+            st.dataframe(table, use_container_width=True, hide_index=True)
+            st.plotly_chart(forest_plot(result, strategy.strategy_name), use_container_width=True, key=f"group_forest_{group_index}_{view_role}_v1")
+            st.plotly_chart(response_plot(st.session_state.group_response_results[group][view_role], strategy.strategy_name, metric.name), use_container_width=True, key=f"group_response_{group_index}_{view_role}_v1")
+
+
+def customer_group_decision_step() -> None:
+    st.subheader("Decide")
+    results_by_group = st.session_state.group_analysis_results
+    if not results_by_group:
+        st.info("Run the group analysis before generating recommendations.")
+        return
+    primary_metric = st.session_state.metrics_config["Primary"]
+    guardrail_metric = st.session_state.metrics_config.get("Guardrail")
+    guardrail_threshold = guardrail_absolute_threshold(guardrail_metric)
+    tabs = st.tabs(list(results_by_group))
+    for tab, (group, results) in zip(tabs, results_by_group.items()):
+        with tab:
+            scorecard = arm_decision_scorecard(
+                results["Primary"],
+                primary_metric.direction,
+                normalize_metric(primary_metric).effect_absolute,
+                results.get("Guardrail"),
+                guardrail_threshold,
+                guardrail_metric.direction if guardrail_metric else "Lower is Better",
+            )
+            display = scorecard.copy()
+            display["Primary Effect"] = display["Primary Effect"].map(lambda value: number(value, 2))
+            display["Relative Lift"] = display["Relative Lift"].map(lambda value: percent(value, 1) if pd.notna(value) else "")
+            display["Adjusted p-value"] = display["Adjusted p-value"].map(lambda value: p_value(value) if pd.notna(value) else "")
+            display["Meets Planned Effect"] = display["Meets Planned Effect"].map({True: "Yes", False: "No"})
+            st.dataframe(display, use_container_width=True, hide_index=True)
+            recommendation = experiment_recommendation(results["Primary"], results.get("Guardrail"), guardrail_threshold, guardrail_metric.direction if guardrail_metric else "Lower is Better", primary_metric.direction)
+            status = recommendation_status(recommendation)
+            if status == "error":
+                st.error(recommendation)
+            elif status == "warning":
+                st.warning(recommendation)
+            else:
+                st.success(recommendation)
+    st.caption("Recommendations are calculated independently for each configured customer group and only for the tested lines.")
 
 
 def analysis_step() -> None:
@@ -2538,32 +3286,32 @@ def time_series_page() -> None:
 
 def customer_page() -> None:
     st.title("Customer-Level Experiment")
-    steps = ["Data", "Metrics", "Treatments", "Design", "Analysis", "Decision"]
+    steps = ["Data", "Groups", "Metrics", "Plan", "Analysis", "Decision"]
     completed = {
         "Data": not st.session_state.raw_df.empty,
+        "Groups": bool(st.session_state.population_config.group_settings),
         "Metrics": not st.session_state.historical_df.empty,
-        "Treatments": bool(configured_arms(st.session_state.strategy_config)[1]),
-        "Design": st.session_state.design_config.required_n_per_arm > 0,
-        "Analysis": bool(st.session_state.analysis_results_by_role),
-        "Decision": bool(st.session_state.analysis_results_by_role),
+        "Plan": bool(st.session_state.design_config.group_plan_rows),
+        "Analysis": bool(st.session_state.group_analysis_results),
+        "Decision": bool(st.session_state.group_analysis_results),
     }
     with st.sidebar:
         completed_count = sum(completed.values())
         st.caption(f"CUSTOMER WORKFLOW · {completed_count}/{len(steps)} READY")
         st.progress(completed_count / len(steps))
-    tab_data, tab_metrics, tab_treatments, tab_design, tab_analysis, tab_decision = st.tabs(["Data", "Metrics", "Treatments", "Design", "Analyze", "Decide"])
+    tab_data, tab_groups, tab_metrics, tab_plan, tab_analysis, tab_decision = st.tabs(["Data", "Groups", "Metrics", "Plan", "Analyze", "Decide"])
     with tab_data:
         customer_data_step()
+    with tab_groups:
+        customer_groups_step()
     with tab_metrics:
         customer_metrics_step()
-    with tab_treatments:
-        strategy_step()
-    with tab_design:
-        design_step()
+    with tab_plan:
+        customer_plan_step()
     with tab_analysis:
-        analysis_step()
+        customer_group_analysis_step()
     with tab_decision:
-        decision_step()
+        customer_group_decision_step()
 
 
 init_state()

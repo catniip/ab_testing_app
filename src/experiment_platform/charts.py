@@ -74,7 +74,7 @@ def historical_association(
     if y_min == y_max:
         y_min -= 0.5
         y_max += 0.5
-    colors = ["#b42318", "#c56a1a", "#8a4f9e", "#087e8b", "#68707a"]
+    colors = ["#2457a6", "#c43b2f", "#d59a18", "#8a4f9e", "#087e8b"]
     for index, point in enumerate(strategy_points or []):
         label = strategy_point_labels[index] if strategy_point_labels and index < len(strategy_point_labels) else f"Assigned line: {float(point):,.0f}"
         fig.add_trace(
