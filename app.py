@@ -19,7 +19,7 @@ from src.experiment_platform.assumptions import (
     validate_metric_assumptions,
 )
 from src.experiment_platform.arm_selection import suggest_numeric_designs, validate_categorical_strategy, validate_numeric_strategy
-from src.experiment_platform.charts import bsts_counterfactual_chart, cumulative_impact_chart, detectable_effect_curve, forest_plot, geo_balance_chart, geo_dma_map, geo_trend_chart, historical_association, impact_chart, pre_post_bar, response_plot, time_series_line, timeseries_chart_context
+from src.experiment_platform.charts import bsts_counterfactual_chart, cumulative_impact_chart, customer_category_bar, customer_group_summary_chart, customer_history_coverage, customer_metric_distribution, customer_option_chart, customer_required_accounts_chart, customer_strategy_outcome_chart, customer_traffic_allocation_chart, detectable_effect_curve, forest_plot, geo_balance_chart, geo_dma_map, geo_trend_chart, historical_association, impact_chart, pre_post_bar, response_plot, time_series_line, timeseries_chart_context
 from src.experiment_platform.customer_planning import assign_group_labels, calculate_group_design, calculate_variant_group_design, default_numeric_groups, suggest_group_designs
 from src.experiment_platform.customer_templates import apply_customer_template
 from src.experiment_platform.data_access import CUSTOMER_DEMO_SCENARIOS, load_customer_demo, load_geo_demo, load_raw_demo, load_results_demo, load_timeseries_demo, load_timeseries_planning_demo, load_uploaded_csv
@@ -27,7 +27,7 @@ from src.experiment_platform.data_validation import data_quality_warnings, date_
 from src.experiment_platform.decision import arm_decision_scorecard, experiment_recommendation, guardrail_status, recommendation_status
 from src.experiment_platform.formatting import money, number, p_value, percent
 from src.experiment_platform.geography import DMA_CENTROIDS, GeoConfig, aggregate_trend, evaluate_geo_balance, infer_geo_schema, leave_one_dma_out, plan_geo_test, prepare_geo_analysis, prepare_geo_panel, run_panel_did, run_placebo_tests, validate_fixed_assignment, validate_geo_panel
-from src.experiment_platform.historical_strategy import historical_arm_statistics, validate_fixed_unit_value
+from src.experiment_platform.historical_strategy import fixed_unit_values, historical_arm_statistics, validate_fixed_unit_value
 from src.experiment_platform.metrics import column_schema, metric_baseline, suggest_metric_type, validate_metric
 from src.experiment_platform.models import AnalysisConfig, DataConfig, DataMappingConfig, DesignConfig, MetricConfig, PopulationConfig, StrategyConfig
 from src.experiment_platform.power import adjusted_alpha, detectable_effect_binary, detectable_effect_continuous, detectable_effect_continuous_unequal, duration, power_binary, power_continuous, power_continuous_unequal, sample_size_binary, sample_size_continuous
@@ -56,8 +56,8 @@ st.markdown(
     .stButton > button:hover {border-color:var(--coral); color:#c93636; box-shadow:0 2px 7px rgba(239,77,77,.12); transform:translateY(-1px);}
     .stButton > button[kind="primary"] {background:var(--coral); border-color:var(--coral); color:white;}
     .stButton > button[kind="primary"] p {color:white;}
-    div[data-baseweb="tab-list"] {gap:1.15rem; border-bottom:1px solid var(--line);}
-    button[data-baseweb="tab"] {padding-left:0; padding-right:0; color:#4c5565;}
+    div[data-baseweb="tab-list"] {gap:.35rem; padding:0 .55rem; border:1px solid var(--line); border-radius:7px; background:#f8f9fb; margin:.15rem 0 1rem;}
+    button[data-baseweb="tab"] {padding:.72rem .65rem; color:#4c5565;}
     button[data-baseweb="tab"][aria-selected="true"] {color:var(--coral); font-weight:650;}
     [data-baseweb="input"], [data-baseweb="select"] > div {background:#f8f9fc; border-color:#dce2eb; border-radius:5px;}
     [data-testid="stExpander"] {border-color:var(--line); border-radius:6px; background:#fff;}
@@ -75,9 +75,11 @@ st.markdown(
     .strategy-banner span {color:#626c7d; font-size:.82rem;}
     .arm-overview {display:flex; gap:.5rem; flex-wrap:wrap; margin:.35rem 0 .9rem;}
     .arm-chip {border:1px solid var(--line); border-left:4px solid var(--gold); padding:.38rem .65rem; border-radius:4px; background:#fff; font-size:.8rem; color:var(--ink);}
-    .arm-chip.control {border-left-color:var(--teal); background:#f4fbf8;}
+    .arm-chip.control {border-left-color:#2457a6; background:#f4f7fc;}
     .arm-chip b {font-weight:700; margin-right:.35rem;}
     .next-step {border-top:1px solid var(--line); margin-top:1rem; padding-top:.75rem; color:#4e5869; font-size:.84rem;}
+    .business-guide {display:flex; justify-content:space-between; gap:1rem; align-items:center; border-left:4px solid #91a2bb; padding:.62rem .8rem; margin:.05rem 0 1rem; background:#f7f9fc; color:#596476; font-size:.8rem; line-height:1.45;}
+    .business-guide b {flex:0 0 auto; color:var(--ink); font-size:.74rem; font-weight:750;}
     .overview-hero {position:relative; overflow:hidden; border:1px solid #dce2eb; border-left:5px solid var(--coral); padding:1.25rem 1.4rem 1.15rem; margin:.2rem 0 1.35rem; background:#fff; box-shadow:0 8px 24px rgba(35,41,54,.06);}
     .overview-hero:after {content:""; position:absolute; right:0; top:0; width:32%; height:4px; background:var(--gold);}
     .overview-kicker {font-size:.7rem; text-transform:uppercase; font-weight:800; color:var(--coral); margin-bottom:.35rem;}
@@ -151,6 +153,50 @@ st.markdown(
     .st-key-customer_start_plan button p {color:#fff !important;}
     .st-key-customer_start_analysis button {background:var(--teal); border-color:var(--teal); color:#fff;}
     .st-key-customer_start_analysis button p {color:#fff;}
+    .ts-product-bar {display:flex; align-items:center; gap:.72rem; min-height:42px;}
+    .ts-product-mark {display:grid; place-items:center; width:34px; height:34px; border:1px solid #ead28c; border-radius:6px; background:#fff7dc; color:#8d6505; font-size:.72rem; font-weight:850;}
+    .ts-product-name {font-size:.9rem; font-weight:760; color:var(--ink);}
+    .ts-product-context {font-size:.7rem; color:#7b8595; margin-top:.05rem;}
+    .ts-page-heading {position:relative; padding:.75rem 0 1rem; border-bottom:1px solid var(--line); margin-bottom:1.1rem;}
+    .ts-page-heading:after {content:""; position:absolute; left:0; bottom:-1px; width:82px; height:3px; background:var(--gold);}
+    .ts-page-heading h1 {font-size:2rem; margin:0 0 .28rem;}
+    .ts-page-heading p {font-size:.9rem; margin:0; color:#647084;}
+    .ts-choice {display:grid; grid-template-columns:56px 1fr; column-gap:1rem; min-height:156px; border:1px solid #e5ca79; border-radius:7px; padding:1.2rem 1.25rem; background:#fffdf7; box-shadow:0 7px 22px rgba(35,41,54,.06);}
+    .ts-choice.analysis {border-color:#a8d2ca; background:#f6fbfa;}
+    .ts-choice-icon {grid-row:1 / span 3; display:grid; place-items:center; align-self:start; width:52px; height:52px; border-radius:6px; background:#f5df9d; color:#815b00; font-size:1rem; font-weight:850;}
+    .ts-choice.analysis .ts-choice-icon {background:#cfe8e2; color:#0d6a58;}
+    .ts-choice h3 {font-size:1.18rem; margin:.05rem 0 .28rem;}
+    .ts-choice p {font-size:.84rem; line-height:1.5; color:#5e697b; margin:0; max-width:520px;}
+    .ts-choice-result {align-self:end; margin-top:.65rem; border-top:1px solid #eadfbf; padding-top:.55rem; color:#4f596b; font-size:.76rem; font-weight:650;}
+    .ts-choice.analysis .ts-choice-result {border-top-color:#dceae7;}
+    .ts-entry-note {font-size:.75rem; color:#697386; text-align:center; margin:.65rem 0 0;}
+    .ts-path {display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); border:1px solid var(--line); border-radius:7px; margin:.2rem 0 1rem; background:#f8f9fb;}
+    .ts-path.analyze {grid-template-columns:repeat(5,minmax(0,1fr));}
+    .ts-path-step {position:relative; min-height:62px; padding:.72rem .8rem .65rem 2.7rem;}
+    .ts-path-step + .ts-path-step {border-left:1px solid var(--line);}
+    .ts-path-number {position:absolute; left:.85rem; top:.8rem; display:grid; place-items:center; width:1.3rem; height:1.3rem; border-radius:50%; background:#fff; border:1px solid #cbd3df; color:#a66f00; font-size:.66rem; font-weight:800;}
+    .ts-path.analyze .ts-path-number {color:var(--teal);}
+    .ts-path-step b {display:block; font-size:.79rem; color:var(--ink); margin-bottom:.08rem;}
+    .ts-path-step span {display:block; font-size:.7rem; color:#737d8e;}
+    .ts-kpi-panel {border:1px solid var(--line); border-radius:7px; background:#fff; box-shadow:0 5px 18px rgba(35,41,54,.05); margin:.5rem 0 1rem; overflow:hidden;}
+    .ts-kpi-head {display:flex; justify-content:space-between; gap:1rem; align-items:flex-start; padding:.82rem 1rem .7rem; border-top:5px solid var(--gold); border-bottom:1px solid #edf0f4;}
+    .ts-kpi-panel.analysis .ts-kpi-head {border-top-color:var(--teal);}
+    .ts-kpi-head strong {display:block; font-size:.98rem; color:var(--ink); margin-bottom:.1rem;}
+    .ts-kpi-head span {display:block; font-size:.76rem; color:#687386;}
+    .ts-status {flex:0 0 auto; border:1px solid #ead596; background:#fff8df; color:#8a6100; padding:.28rem .5rem; border-radius:4px; font-size:.68rem; font-weight:750;}
+    .ts-kpi-panel.analysis .ts-status {border-color:#b9ddd5; background:#edf8f5; color:#0b6b58;}
+    .ts-kpis {display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); padding:.25rem 0;}
+    .ts-kpi {padding:.75rem 1rem .85rem; min-width:0;}
+    .ts-kpi + .ts-kpi {border-left:1px solid #edf0f4;}
+    .ts-kpi-label {font-size:.69rem; color:#758092; margin-bottom:.25rem;}
+    .ts-kpi-value {font-size:1.34rem; line-height:1.15; font-weight:760; color:var(--ink); overflow-wrap:anywhere;}
+    .ts-kpi-value.positive {color:#117865;}
+    .ts-kpi-value.negative {color:#dc4343;}
+    .ts-panel-title {font-size:.86rem; font-weight:750; color:var(--ink); margin:.15rem 0 .5rem;}
+    .st-key-ts_start_planning button {background:var(--gold) !important; border-color:var(--gold) !important; color:#fff !important;}
+    .st-key-ts_start_planning button p {color:#fff !important;}
+    .st-key-ts_start_analysis button {background:var(--teal); border-color:var(--teal); color:#fff;}
+    .st-key-ts_start_analysis button p {color:#fff;}
     .geo-intro {position:relative; overflow:hidden; border:1px solid var(--line); border-left:5px solid var(--teal); padding:1rem 1.15rem; margin:.15rem 0 1.15rem; background:#fff; box-shadow:0 8px 24px rgba(35,41,54,.06);}
     .geo-intro:after {content:""; position:absolute; right:0; top:0; width:28%; height:4px; background:var(--gold);}
     .geo-intro strong {display:block; font-size:1rem; color:var(--ink); margin-bottom:.2rem;}
@@ -231,6 +277,13 @@ st.markdown(
       .customer-kpis {grid-template-columns:repeat(2,minmax(0,1fr));}
       .customer-kpi:nth-child(3) {border-left:0; border-top:1px solid #edf0f4;}
       .customer-kpi:nth-child(4) {border-top:1px solid #edf0f4;}
+      .ts-choice {grid-template-columns:42px 1fr; padding:1rem; column-gap:.75rem;}
+      .ts-choice-icon {width:40px; height:40px;}
+      .ts-path, .ts-path.analyze {grid-template-columns:1fr;}
+      .ts-path-step + .ts-path-step {border-left:0; border-top:1px solid var(--line);}
+      .ts-kpis {grid-template-columns:repeat(2,minmax(0,1fr));}
+      .ts-kpi:nth-child(3) {border-left:0; border-top:1px solid #edf0f4;}
+      .ts-kpi:nth-child(4) {border-top:1px solid #edf0f4;}
     }
     </style>
     """,
@@ -483,6 +536,7 @@ def reset_customer_data_choices() -> None:
     st.session_state.design_config.group_plan_rows = []
     st.session_state.group_analysis_results = {}
     st.session_state.group_response_results = {}
+    st.session_state.pop("outcome_strategy_view_v1", None)
     reset_prefixes = (
         "customer_grouping_",
         "customer_group_bands_",
@@ -717,6 +771,13 @@ def format_strategy_value(value: object, strategy: StrategyConfig) -> str:
     return number(numeric, 2)
 
 
+def render_business_guide(message: str, output: str) -> None:
+    st.markdown(
+        f'<div class="business-guide"><span>{html.escape(message)}</span><b>{html.escape(output)}</b></div>',
+        unsafe_allow_html=True,
+    )
+
+
 def render_customer_summary() -> None:
     population: PopulationConfig = st.session_state.population_config
     strategy: StrategyConfig = st.session_state.strategy_config
@@ -833,17 +894,17 @@ def show_overview() -> None:
     st.markdown(
         """
         <section class="overview-hero">
-          <div class="overview-kicker">Experiment decision workbench</div>
-          <h1>Choose the right test. Get to a decision faster.</h1>
-          <p>Plan a credible experiment, measure incremental impact, and turn the result into a clear rollout decision.</p>
+          <div class="overview-kicker">Experiment planning and measurement</div>
+          <h1>Choose how the change will be rolled out.</h1>
+          <p>Start with one business question. The platform will guide the data, test plan, impact calculation, and recommendation.</p>
           <div class="overview-signal">
             <span><b>3</b> analysis paths</span>
             <span><b>1</b> guided workflow</span>
             <span><b>Planning to decision</b> in one place</span>
           </div>
         </section>
-        <div class="overview-section-title">What are you testing?</div>
-        <div class="overview-section-copy">Start with how the treatment is assigned. The platform will guide the rest of the design.</div>
+        <div class="overview-section-title">Who receives the change?</div>
+        <div class="overview-section-copy">Choose the option that matches how your campaign or strategy is delivered.</div>
         """,
         unsafe_allow_html=True,
     )
@@ -854,8 +915,8 @@ def show_overview() -> None:
             <div class="workflow-card customer">
               <div class="workflow-index">01 · Randomized</div>
               <h3>Customer Experiment</h3>
-              <p>Compare credit, offers, prices, messages, or product experiences across randomized customers.</p>
-              <div class="workflow-fit"><b>Best when</b>Customers or accounts can be assigned to different treatments.</div>
+              <p>Compare different options across randomly assigned customers or accounts.</p>
+              <div class="workflow-fit"><b>Choose this when</b>Different customers can receive different options.</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -867,8 +928,8 @@ def show_overview() -> None:
             <div class="workflow-card geo">
               <div class="workflow-index">02 · Market A/B</div>
               <h3>Geographic Test</h3>
-              <p>Measure a rollout using fixed Test and Control markets, regions, or DMAs.</p>
-              <div class="workflow-fit"><b>Best when</b>The campaign is assigned by location instead of by customer.</div>
+              <p>Compare a campaign across fixed Test and Control markets, regions, or DMAs.</p>
+              <div class="workflow-fit"><b>Choose this when</b>Different locations receive different experiences.</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -880,8 +941,8 @@ def show_overview() -> None:
             <div class="workflow-card time">
               <div class="workflow-index">03 · No control group</div>
               <h3>Time Series Analysis</h3>
-              <p>Measure change over time against a modeled no-campaign counterfactual.</p>
-              <div class="workflow-fit"><b>Best when</b>A change starts on a known date and no control group is available.</div>
+              <p>Measure what changed after a campaign when everyone is affected at the same time.</p>
+              <div class="workflow-fit"><b>Choose this when</b>There is a known launch date but no separate control group.</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -940,7 +1001,10 @@ def refresh_customer_processing():
 
 
 def customer_data_step() -> None:
-    st.subheader("Data")
+    render_business_guide(
+        "Start with past customer data. We will identify the available products, audiences, outcomes, and strategy fields.",
+        "Output: usable customer history",
+    )
     st.session_state.experiment_name = st.text_input("Experiment Name", st.session_state.experiment_name, key="customer_experiment_name_v2")
     cfg: DataConfig = st.session_state.data_config
     source_options = ["Internal Data", "Upload File", "Synthetic Demo"]
@@ -1009,7 +1073,14 @@ def customer_data_step() -> None:
         st.error("No numeric outcome column was detected. Upload data with at least one numeric result field.")
         return
 
-    mapping.data_structure = st.radio("Dataset Structure", ["Longitudinal (unit x period)", "Cross-sectional (one row per unit)"], index=["Longitudinal (unit x period)", "Cross-sectional (one row per unit)"].index(mapping.data_structure), horizontal=True, key="customer_structure_v2")
+    mapping.data_structure = st.radio(
+        "How is the customer data organized?",
+        ["Longitudinal (unit x period)", "Cross-sectional (one row per unit)"],
+        index=["Longitudinal (unit x period)", "Cross-sectional (one row per unit)"].index(mapping.data_structure),
+        horizontal=True,
+        format_func=lambda value: "Multiple rows per customer over time" if value.startswith("Longitudinal") else "One row per customer",
+        key="customer_structure_v2",
+    )
     available_segments = sorted(raw_df[mapping.cpc_column].dropna().astype(str).unique().tolist()) if mapping.cpc_column else []
     if available_segments:
         current_products = [value for value in population.selected_cpcs if value in available_segments]
@@ -1046,15 +1117,15 @@ def customer_data_step() -> None:
             historical_period = f"{historical_start:%b %Y} to {historical_end:%b %Y}"
     st.info(f"Historical data available: {historical_period}")
 
-    with st.expander("Advanced Data Mapping", expanded=False):
+    with st.expander("Advanced data mapping", expanded=False):
         c1, c2 = st.columns(2)
-        mapping.unit_id_column = c1.selectbox("Experimental Unit ID", columns, index=columns.index(mapping.unit_id_column), key="customer_unit_map_v2")
+        mapping.unit_id_column = c1.selectbox("Customer or Account ID", columns, index=columns.index(mapping.unit_id_column), key="customer_unit_map_v2")
         segment_options = ["None"] + columns
         selected_segment = c2.selectbox("Product / Brand Column (CPC)", segment_options, index=segment_options.index(mapping.cpc_column) if mapping.cpc_column in columns else 0, key="customer_segment_map_v2")
         mapping.cpc_column = "" if selected_segment == "None" else selected_segment
         if mapping.data_structure == "Longitudinal (unit x period)":
             c1, c2 = st.columns(2)
-            mapping.mob_column = c1.selectbox("Observation Period", columns, index=columns.index(mapping.mob_column) if mapping.mob_column in columns else 0, key="customer_period_map_v2")
+            mapping.mob_column = c1.selectbox("Time Since Customer Start", columns, index=columns.index(mapping.mob_column) if mapping.mob_column in columns else 0, key="customer_period_map_v2")
             date_options = ["None"] + dates
             selected_date = c2.selectbox("Acquisition Date Column", date_options, index=date_options.index(mapping.booking_date_column) if mapping.booking_date_column in dates else 0, key="customer_date_map_v2")
             mapping.booking_date_column = "" if selected_date == "None" else selected_date
@@ -1067,9 +1138,34 @@ def customer_data_step() -> None:
     d = result.diagnostics
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Rows", f"{d['Raw Records']:,.0f}")
-    c2.metric("Unique Units", f"{d['Unique Accounts']:,.0f}")
-    c3.metric("Primary Eligible", f"{d['Final Analysis Population']:,.0f}")
+    c2.metric("Customers / Accounts", f"{d['Unique Accounts']:,.0f}")
+    c3.metric("Ready for Primary Outcome", f"{d['Final Analysis Population']:,.0f}")
     c4.metric("Products / Brands", f"{len(population.selected_cpcs):,.0f}" if available_segments else "All")
+    visual_count = int(bool(mapping.cpc_column and mapping.cpc_column in raw_df.columns)) + int(bool(mapping.booking_date_column and mapping.booking_date_column in raw_df.columns))
+    if visual_count:
+        st.markdown("**Who Is In This Data?**")
+        visual_columns = st.columns(visual_count)
+        visual_index = 0
+        scoped_raw = raw_df
+        if mapping.cpc_column and population.selected_cpcs:
+            scoped_raw = raw_df[raw_df[mapping.cpc_column].astype(str).isin(population.selected_cpcs)]
+        if mapping.cpc_column and mapping.cpc_column in raw_df.columns:
+            with visual_columns[visual_index]:
+                st.caption("Customer coverage by product or brand")
+                st.plotly_chart(
+                    customer_category_bar(scoped_raw, mapping.cpc_column, mapping.unit_id_column, "Product / Brand"),
+                    use_container_width=True,
+                    key="customer_product_coverage_chart_v1",
+                )
+            visual_index += 1
+        if mapping.booking_date_column and mapping.booking_date_column in raw_df.columns:
+            with visual_columns[visual_index]:
+                st.caption("When customers or accounts entered the available history")
+                st.plotly_chart(
+                    customer_history_coverage(scoped_raw, mapping.booking_date_column, mapping.unit_id_column),
+                    use_container_width=True,
+                    key="customer_history_coverage_chart_v1",
+                )
     if d["Final Analysis Population"] == 0:
         st.error("No units are eligible for the primary metric. Review the population and observation window.")
     with st.expander("Eligibility Details", expanded=False):
@@ -1088,7 +1184,7 @@ def customer_data_step() -> None:
         preview = selected.head(20)
         caption = f"Showing 20 of {len(selected):,.0f} selected source rows · {len(selected.columns)} columns"
     else:
-        display_names = {mapping.unit_id_column: "Experimental Unit"}
+        display_names = {mapping.unit_id_column: "Customer / Account"}
         if mapping.cpc_column:
             display_names[mapping.cpc_column] = "Product / Brand"
         for metric in st.session_state.metrics_config.values():
@@ -1105,8 +1201,10 @@ def customer_data_step() -> None:
 
 
 def customer_groups_step() -> None:
-    st.subheader("Groups")
-    st.caption("Choose one customer grouping dimension. Planning and analysis will be calculated separately for every group.")
+    render_business_guide(
+        "Choose one customer characteristic only when the business needs a separate plan for each audience.",
+        "Output: audiences planned separately",
+    )
     raw_df = st.session_state.raw_df
     mapping: DataMappingConfig = st.session_state.data_mapping
     population: PopulationConfig = st.session_state.population_config
@@ -1240,6 +1338,21 @@ def customer_groups_step() -> None:
             settings["max_line"] = float(row["Maximum Strategy Value"])
             if settings["min_line"] >= settings["max_line"]:
                 st.error(f"{group}: minimum strategy value must be below maximum strategy value.")
+    chart_left, chart_right = st.columns(2)
+    with chart_left:
+        st.caption("Historical customers or accounts by audience")
+        st.plotly_chart(
+            customer_group_summary_chart(edited, "Historical Accounts", "Historical Customers / Accounts"),
+            use_container_width=True,
+            key="customer_group_history_chart_v1",
+        )
+    with chart_right:
+        st.caption(f"Eligible customers arriving per {duration_unit(st.session_state.design_config.traffic_frequency)}")
+        st.plotly_chart(
+            customer_group_summary_chart(edited, flow_column, flow_column, color="#16856b"),
+            use_container_width=True,
+            key="customer_group_flow_chart_v1",
+        )
     if strategy.strategy_type == "Numeric Strategy":
         st.caption("The business range limits numeric strategy recommendations. Sparse historical evidence produces a warning, but it does not silently change these limits.")
     else:
@@ -1251,26 +1364,39 @@ def configure_metric_panel(role: str, raw_df: pd.DataFrame) -> None:
     cfg = st.session_state.metrics_config[role]
     cfg.source_column = default_metric_source(raw_df, role, cfg.source_column)
     c1, c2, c3, c4 = st.columns([1.3, 1.5, 1, 1])
-    cfg.name = c1.text_input("Metric Name", cfg.name, key=f"metric_panel_name_{role}")
-    cfg.source_column = c2.selectbox("Source Column", numeric, index=numeric.index(cfg.source_column) if cfg.source_column in numeric else 0, key=f"metric_panel_source_{role}")
-    cfg.metric_type = c3.selectbox("Metric Type", ["Continuous", "Binary"], index=["Continuous", "Binary"].index(cfg.metric_type), key=f"metric_panel_type_{role}")
-    cfg.direction = c4.selectbox("Success Direction", ["Higher is Better", "Lower is Better"], index=["Higher is Better", "Lower is Better"].index(cfg.direction), key=f"metric_panel_direction_{role}")
+    cfg.name = c1.text_input("Outcome Name", cfg.name, key=f"metric_panel_name_{role}")
+    cfg.source_column = c2.selectbox("Data Column", numeric, index=numeric.index(cfg.source_column) if cfg.source_column in numeric else 0, key=f"metric_panel_source_{role}")
+    cfg.metric_type = c3.selectbox(
+        "Outcome Format",
+        ["Continuous", "Binary"],
+        index=["Continuous", "Binary"].index(cfg.metric_type),
+        format_func=lambda value: "Number" if value == "Continuous" else "Yes / No",
+        key=f"metric_panel_type_{role}",
+    )
+    cfg.direction = c4.selectbox("A Better Result Is", ["Higher is Better", "Lower is Better"], index=["Higher is Better", "Lower is Better"].index(cfg.direction), key=f"metric_panel_direction_{role}")
     if st.session_state.data_mapping.data_structure == "Longitudinal (unit x period)":
         mob_col = st.session_state.data_mapping.mob_column
         periods = sorted(pd.to_numeric(raw_df[mob_col], errors="coerce").dropna().astype(int).unique().tolist()) if mob_col in raw_df.columns else [12]
         cfg.mob_start = max(int(getattr(cfg, "mob_start", 1)), 1)
         c1, c2, c3 = st.columns(3)
-        cfg.aggregation_method = c1.selectbox("Unit-Level Aggregation", ["Average", "Cumulative"], index=["Average", "Cumulative"].index(cfg.aggregation_method), key=f"metric_panel_agg_{role}")
+        cfg.aggregation_method = c1.selectbox(
+            "Combine Each Customer's Records By",
+            ["Average", "Cumulative"],
+            index=["Average", "Cumulative"].index(cfg.aggregation_method),
+            format_func=lambda value: "Average" if value == "Average" else "Total",
+            key=f"metric_panel_agg_{role}",
+        )
         window_mode = c2.selectbox(
-            "Observation Window",
+            "When Should It Be Measured?",
             ["Through MOB", "From MOB to MOB"],
             index=0 if cfg.mob_start == 1 else 1,
+            format_func=lambda value: "From start through a month" if value == "Through MOB" else "Between two months",
             key=f"metric_panel_window_mode_{role}",
         )
-        cfg.mob_horizon = int(c3.selectbox("End MOB", periods, index=periods.index(cfg.mob_horizon) if cfg.mob_horizon in periods else 0, key=f"metric_panel_window_end_{role}"))
+        cfg.mob_horizon = int(c3.selectbox("End Month (MOB)", periods, index=periods.index(cfg.mob_horizon) if cfg.mob_horizon in periods else 0, key=f"metric_panel_window_end_{role}"))
         if window_mode == "From MOB to MOB":
             valid_starts = [period for period in periods if period <= cfg.mob_horizon]
-            cfg.mob_start = int(c2.selectbox("Start MOB", valid_starts, index=valid_starts.index(cfg.mob_start) if cfg.mob_start in valid_starts else 0, key=f"metric_panel_window_start_{role}"))
+            cfg.mob_start = int(c2.selectbox("Start Month (MOB)", valid_starts, index=valid_starts.index(cfg.mob_start) if cfg.mob_start in valid_starts else 0, key=f"metric_panel_window_start_{role}"))
         else:
             cfg.mob_start = 1
     else:
@@ -1300,7 +1426,10 @@ def configure_metric_panel(role: str, raw_df: pd.DataFrame) -> None:
 
 
 def customer_metrics_step() -> None:
-    st.subheader("Metrics")
+    render_business_guide(
+        "Choose the business outcome that determines whether the experiment succeeds. Additional outcomes are optional.",
+        "Output: success measure",
+    )
     raw_df = st.session_state.raw_df
     if raw_df.empty:
         st.info("Load data first. Outcome options will update automatically from the dataset.")
@@ -1310,20 +1439,20 @@ def customer_metrics_step() -> None:
         st.error("No numeric outcome columns were detected in the current dataset.")
         return
     st.caption(f"Choose the main business outcome. {len(numeric)} numeric fields were detected in the current data.")
-    st.markdown("**Primary Metric**")
+    st.markdown("**Main Outcome**")
     configure_metric_panel("Primary", raw_df)
-    with st.expander("Add secondary or guardrail metrics", expanded=False):
-        st.caption("Optional metrics stay hidden unless the experiment needs an additional outcome or a risk limit.")
+    with st.expander("Add another outcome or safety limit", expanded=False):
+        st.caption("Keep this closed unless the experiment needs another business outcome or a risk limit.")
         c1, c2 = st.columns(2)
-        secondary_enabled = c1.checkbox("Add Secondary Metric", value="Secondary" in st.session_state.metrics_config, key="enable_secondary_v3")
-        guardrail_enabled = c2.checkbox("Add Guardrail Metric", value="Guardrail" in st.session_state.metrics_config, key="enable_guardrail_v3")
+        secondary_enabled = c1.checkbox("Add Another Outcome", value="Secondary" in st.session_state.metrics_config, key="enable_secondary_v3")
+        guardrail_enabled = c2.checkbox("Add Safety Outcome", value="Guardrail" in st.session_state.metrics_config, key="enable_guardrail_v3")
         if secondary_enabled:
             secondary_source = next((column for column in numeric if column != st.session_state.metrics_config["Primary"].source_column), numeric[0])
             st.session_state.metrics_config.setdefault(
                 "Secondary",
                 MetricConfig("Secondary Outcome", secondary_source, "Secondary", effect_type="Relative %", effect_value=0.15, source_column=secondary_source, aggregation_method="Average", mob_horizon=12),
             )
-            st.markdown("**Secondary Metric**")
+            st.markdown("**Additional Outcome**")
             configure_metric_panel("Secondary", raw_df)
         else:
             st.session_state.metrics_config.pop("Secondary", None)
@@ -1334,7 +1463,7 @@ def customer_metrics_step() -> None:
                 "Guardrail",
                 MetricConfig("Guardrail Outcome", guardrail_source, "Guardrail", direction="Lower is Better", effect_type="Relative %", effect_value=0.15, guardrail_threshold=0.15, source_column=guardrail_source, aggregation_method="Average", mob_horizon=12),
             )
-            st.markdown("**Guardrail Metric**")
+            st.markdown("**Safety Outcome**")
             configure_metric_panel("Guardrail", raw_df)
         else:
             st.session_state.metrics_config.pop("Guardrail", None)
@@ -1350,85 +1479,153 @@ def customer_metrics_step() -> None:
             summary[column] = summary[column].map(lambda value: round(value, 3) if pd.notna(value) else value)
     if st.session_state.strategy_config.strategy_type == "Numeric Strategy" and "SD" in summary.columns:
         summary = summary.drop(columns=["SD"])
-        summary["Variability"] = "Calculated by selected historical grouping in Design"
-    st.markdown("**Historical Assumptions**")
-    st.dataframe(summary, use_container_width=True, hide_index=True)
+        summary["Historical Variation"] = "Calculated from similar past strategy values when building the plan"
+    st.markdown("**Historical Snapshot**")
+    display_summary = summary.rename(
+        columns={
+            "Metric": "Outcome",
+            "Role": "Use",
+            "Aggregation": "How It Is Calculated",
+            "Observation Window": "When It Is Measured",
+            "Baseline": "Historical Average",
+            "SD": "Typical Variation",
+            "Eligible N": "Usable Customers / Accounts",
+        }
+    )
+    st.dataframe(display_summary, use_container_width=True, hide_index=True)
     if summary["Eligible N"].nunique() > 1:
         st.caption("Eligible sample sizes differ because each metric uses its own observation window. The Plan uses all configured metrics by default.")
 
+    st.markdown("**What Have These Outcomes Looked Like Historically?**")
+    for index in range(0, len(roles), 2):
+        visible_roles = roles[index : index + 2]
+        distribution_columns = st.columns(len(visible_roles))
+        for column, role in zip(distribution_columns, visible_roles):
+            with column:
+                metric = st.session_state.metrics_config[role]
+                metric_column = metric.processed_column or metric.column
+                st.caption(f"{metric.name} · {metric_window_label(metric)}")
+                st.plotly_chart(
+                    customer_metric_distribution(result.analysis_df, metric_column, metric.name, metric.metric_type),
+                    use_container_width=True,
+                    key=f"customer_metric_distribution_{role}_v1",
+                )
+
+    mapping: DataMappingConfig = st.session_state.data_mapping
+    population: PopulationConfig = st.session_state.population_config
     strategy: StrategyConfig = st.session_state.strategy_config
-    historical_df = result.analysis_df
-    grouped_history = group_labeled_history()
-    historical_column = strategy.historical_column
-    if strategy.strategy_type == "Numeric Strategy" and historical_column in historical_df.columns:
-        st.markdown(f"**Metric History by {strategy.strategy_name}**")
-        curve_left, curve_middle, curve_right = st.columns([1.15, 1, 1])
-        binning_options = ["Automatic fine bins", "Fixed bin width", "Equal-count bins"]
-        strategy.curve_binning_method = curve_left.selectbox(
-            "Curve Binning",
-            binning_options,
-            index=binning_options.index(strategy.curve_binning_method) if strategy.curve_binning_method in binning_options else 0,
-            key="metric_curve_binning_v4",
-        )
-        if strategy.curve_binning_method == "Fixed bin width":
-            strategy.curve_bin_width = curve_middle.number_input(
-                "Bin Width",
-                min_value=0.01,
-                value=float(strategy.curve_bin_width),
-                step=max(float(strategy.increment), 0.01),
-                key="metric_curve_width_v4",
-            )
-        elif strategy.curve_binning_method == "Equal-count bins":
-            strategy.curve_bin_count = int(curve_middle.number_input("Number of Bins", min_value=4, max_value=50, value=int(strategy.curve_bin_count), step=1, key="metric_curve_count_v4"))
-        else:
-            curve_middle.caption("Uses 6–30 fine bins based on the eligible customer count.")
+    excluded = {
+        mapping.unit_id_column,
+        mapping.cpc_column,
+        mapping.mob_column,
+        mapping.booking_date_column,
+        population.grouping_column,
+        *[metric.source_column for metric in st.session_state.metrics_config.values()],
+    }
+    excluded.update(date_like_columns(raw_df))
+    comparison_candidates = strategy_candidates(raw_df, mapping.unit_id_column, excluded)
+    if comparison_candidates:
+        st.markdown("**Outcome by Historical Strategy**")
+        preferred_strategy = strategy.historical_column if strategy.historical_column in comparison_candidates else comparison_candidates[0]
+        stored_strategy = st.session_state.get("outcome_strategy_view_v1")
+        if stored_strategy not in comparison_candidates:
+            st.session_state.pop("outcome_strategy_view_v1", None)
+        grouped_history = group_labeled_history()
         group_options = ["All groups"] + grouped_history["_planning_group"].astype(str).drop_duplicates().tolist()
-        selected_group = curve_right.selectbox("Customer Group Shown", group_options, key="metric_history_group_v1")
+        selector_left, selector_right = st.columns([1.25, 1])
+        selected_strategy = selector_left.selectbox(
+            "Test Strategy",
+            comparison_candidates,
+            index=comparison_candidates.index(preferred_strategy),
+            format_func=humanize_column_name,
+            help="Choose the historical strategy to place on the horizontal axis. Confirm the actual experiment strategy later in Define Options.",
+            key="outcome_strategy_view_v1",
+        )
+        selected_group = selector_right.selectbox("Customer Group", group_options, key="metric_history_group_v2")
+
+        if selected_strategy not in grouped_history.columns:
+            strategy_values = fixed_unit_values(raw_df, mapping.unit_id_column, [selected_strategy]).reset_index()
+            grouped_history = grouped_history.merge(strategy_values, on=mapping.unit_id_column, how="left")
         chart_history = grouped_history if selected_group == "All groups" else grouped_history[grouped_history["_planning_group"].astype(str) == selected_group]
+        numeric_strategy = pd.to_numeric(chart_history[selected_strategy], errors="coerce")
+        is_numeric_strategy = numeric_strategy.notna().mean() >= 0.95
+        binning_method = "Automatic fine bins"
+        bin_width = float(strategy.curve_bin_width)
+        bin_count = int(strategy.curve_bin_count)
+        if is_numeric_strategy:
+            with st.expander("Chart settings", expanded=False):
+                setting_left, setting_right = st.columns(2)
+                binning_options = ["Automatic fine bins", "Fixed bin width", "Equal-count bins"]
+                binning_method = setting_left.selectbox("How to group strategy values", binning_options, key="metric_curve_binning_v5")
+                if binning_method == "Fixed bin width":
+                    bin_width = setting_right.number_input(
+                        "Bin Width",
+                        min_value=0.01,
+                        value=max(float(strategy.curve_bin_width), 0.01),
+                        step=max(float(strategy.increment), 0.01),
+                        key="metric_curve_width_v5",
+                    )
+                elif binning_method == "Equal-count bins":
+                    bin_count = int(setting_right.number_input("Number of Bins", min_value=4, max_value=50, value=max(4, int(strategy.curve_bin_count)), step=1, key="metric_curve_count_v5"))
+                else:
+                    setting_right.caption("Automatically uses enough bins to reveal the pattern without making the chart noisy.")
+
+        strategy_label = humanize_column_name(selected_strategy)
         for index in range(0, len(roles), 2):
-            chart_columns = st.columns(2)
-            for column, role in zip(chart_columns, roles[index : index + 2]):
+            visible_roles = roles[index : index + 2]
+            chart_columns = st.columns(len(visible_roles))
+            for column, role in zip(chart_columns, visible_roles):
                 with column:
                     metric = st.session_state.metrics_config[role]
                     metric_column = metric.processed_column or metric.column
-                    st.markdown(f"**{role}: {metric.name}**")
-                    st.caption(metric_window_label(metric))
-                    st.plotly_chart(
-                        historical_association(
+                    st.caption(f"{metric.name} · {metric_window_label(metric)}")
+                    if is_numeric_strategy:
+                        figure = historical_association(
                             chart_history,
-                            historical_column,
+                            selected_strategy,
                             metric_column,
                             metric.metric_type,
-                            strategy_label=strategy.strategy_name,
+                            strategy_label=strategy_label,
                             metric_label=metric.name,
-                            binning_method=strategy.curve_binning_method,
-                            bin_width=float(strategy.curve_bin_width),
-                            bin_count=int(strategy.curve_bin_count),
-                        ),
-                        use_container_width=True,
-                        key=f"metric_history_chart_{role}_v5",
-                    )
-        st.caption("The curve connects fine-bin historical means; vertical intervals are 95% confidence intervals. These are descriptive historical associations, not causal estimates.")
-        with st.expander("Group-Level Historical Summary", expanded=False):
-            group_rows = []
-            for group, scoped in grouped_history.groupby("_planning_group", sort=False):
-                for role in roles:
-                    metric = st.session_state.metrics_config[role]
-                    values = pd.to_numeric(scoped[metric.processed_column or metric.column], errors="coerce").dropna()
-                    group_rows.append(
-                        {
-                            "Group": group,
-                            "Role": role,
-                            "Metric": metric.name,
-                            "Historical Accounts": len(values),
-                            "Average": values.mean(),
-                            "SD": values.std(ddof=1),
-                        }
-                    )
-            shown_groups = pd.DataFrame(group_rows)
-            shown_groups["Average"] = shown_groups["Average"].round(2)
-            shown_groups["SD"] = shown_groups["SD"].round(2)
-            st.dataframe(shown_groups, use_container_width=True, hide_index=True)
+                            binning_method=binning_method,
+                            bin_width=bin_width,
+                            bin_count=bin_count,
+                        )
+                    else:
+                        figure = customer_strategy_outcome_chart(
+                            chart_history,
+                            selected_strategy,
+                            metric_column,
+                            strategy_label,
+                            metric.name,
+                            metric.metric_type,
+                        )
+                    st.plotly_chart(figure, use_container_width=True, key=f"outcome_by_strategy_{role}_v1")
+        st.caption("Historical association only. Customers were not randomized across these strategy values, so the chart supports option selection but does not prove causation. Vertical intervals show 95% confidence intervals.")
+    else:
+        st.info("No stable historical strategy field was detected. You can still define a new strategy in Define Options.")
+
+    grouped_history = group_labeled_history()
+    with st.expander("Group-Level Historical Summary", expanded=False):
+        group_rows = []
+        for group, scoped in grouped_history.groupby("_planning_group", sort=False):
+            for role in roles:
+                metric = st.session_state.metrics_config[role]
+                values = pd.to_numeric(scoped[metric.processed_column or metric.column], errors="coerce").dropna()
+                group_rows.append(
+                    {
+                        "Group": group,
+                        "Role": role,
+                        "Metric": metric.name,
+                        "Historical Accounts": len(values),
+                        "Average": values.mean(),
+                        "SD": values.std(ddof=1),
+                    }
+                )
+        shown_groups = pd.DataFrame(group_rows)
+        shown_groups["Average"] = shown_groups["Average"].round(2)
+        shown_groups["SD"] = shown_groups["SD"].round(2)
+        st.dataframe(shown_groups, use_container_width=True, hide_index=True)
 
 
 def data_metrics_step() -> None:
@@ -1670,7 +1867,10 @@ def population_step() -> None:
 
 
 def strategy_step() -> None:
-    st.subheader("Strategy")
+    render_business_guide(
+        "Define what stays as business as usual and which alternatives customers may receive.",
+        "Output: current and test options",
+    )
     strategy: StrategyConfig = st.session_state.strategy_config
     raw_df = st.session_state.raw_df
     mapping: DataMappingConfig = st.session_state.data_mapping
@@ -1690,14 +1890,15 @@ def strategy_step() -> None:
     candidates = strategy_candidates(raw_df, mapping.unit_id_column, excluded)
     new_strategy = "New strategy (not in historical data)"
     options = [new_strategy] + candidates
-    current = strategy.historical_column if strategy.historical_column in candidates else new_strategy
+    outcome_strategy = st.session_state.get("outcome_strategy_view_v1")
+    current = strategy.historical_column if strategy.historical_column in candidates else outcome_strategy if outcome_strategy in candidates else new_strategy
     selected = st.selectbox(
-        "Historical Strategy Field",
+        "Which field describes the current strategy?",
         options,
         index=options.index(current),
         format_func=lambda value: value if value == new_strategy else humanize_column_name(value),
         help="The list contains fields that are stable for each customer in the current dataset. Choose New strategy when the proposed treatment has no historical equivalent.",
-        key="strategy_data_field_v1",
+        key="strategy_data_field_v2",
     )
     signature = (st.session_state.get("customer_active_data_signature"), selected)
     if st.session_state.get("customer_strategy_field_signature") != signature:
@@ -1744,7 +1945,7 @@ def strategy_step() -> None:
         )
         st.write("Historical evidence: " + (humanize_column_name(strategy.historical_column) if strategy.historical_column else "Group-level outcome history"))
 
-    st.markdown("**Experiment Arms**")
+    st.markdown("**Test Options**")
     render_arm_overview(strategy)
     if strategy.strategy_type == "Numeric Strategy":
         with st.expander("Numeric value settings", expanded=False):
@@ -1772,8 +1973,8 @@ def strategy_step() -> None:
             num_rows="dynamic",
             disabled=["Role"],
             column_config={
-                "Role": st.column_config.TextColumn("Role"),
-                "Arm Name": st.column_config.TextColumn("Arm Name", required=True),
+                "Role": st.column_config.TextColumn("Type"),
+                "Arm Name": st.column_config.TextColumn("Option Name", required=True),
                 strategy.value_label: st.column_config.NumberColumn(strategy.value_label, required=True, step=float(strategy.increment)),
             },
             key=f"generic_numeric_arms_{selected}_v2",
@@ -1801,8 +2002,8 @@ def strategy_step() -> None:
             num_rows="dynamic",
             disabled=["Role"],
             column_config={
-                "Role": st.column_config.TextColumn("Role"),
-                "Arm Name": st.column_config.TextColumn("Arm Name", required=True),
+                "Role": st.column_config.TextColumn("Type"),
+                "Arm Name": st.column_config.TextColumn("Option Name", required=True),
                 "Description": st.column_config.TextColumn("What the customer receives"),
             },
             key=f"generic_named_arms_{selected}_v2",
@@ -1817,9 +2018,28 @@ def strategy_step() -> None:
         for error in validate_categorical_strategy(strategy.categorical_control, strategy.categorical_treatments):
             st.error(error)
     control, treatments = configured_arms(strategy)
+    treatment_labels = (
+        [strategy.treatment_names[index] if index < len(strategy.treatment_names) else f"Test {index + 1}" for index in range(len(treatments))]
+        if strategy.strategy_type == "Numeric Strategy"
+        else [str(value) for value in treatments]
+    )
+    st.markdown("**Experiment at a Glance**")
+    st.caption("Blue is the current / BAU experience. Other colors are the options being tested.")
+    st.plotly_chart(
+        customer_option_chart(
+            control,
+            list(treatments),
+            strategy.control_name if strategy.strategy_type == "Numeric Strategy" else str(control),
+            treatment_labels,
+            strategy.value_label if strategy.strategy_type == "Numeric Strategy" else strategy.strategy_name,
+            numeric=strategy.strategy_type == "Numeric Strategy",
+        ),
+        use_container_width=True,
+        key="customer_option_chart_v1",
+    )
     st.markdown(
-        f'<div class="next-step"><strong>{len(treatments) + 1} arms ready.</strong> '
-        'Continue to Plan to calculate required accounts, traffic allocation, and test duration.</div>',
+        f'<div class="next-step"><strong>{len(treatments) + 1} options ready.</strong> '
+        'Continue to Get Plan to calculate required accounts, traffic allocation, and test duration.</div>',
         unsafe_allow_html=True,
     )
 
@@ -1861,28 +2081,52 @@ def render_customer_plan(
             ("Required Accounts", f"{design.total_sample_size:,.0f}", "treatment"),
             ("Longest Test Duration", duration_label(int(math.ceil(total_duration)), design.traffic_frequency), ""),
             ("Customer Groups", f"{len(group_names):,.0f}", ""),
-            ("Strategy Arms", f"{arm_count:,.0f}", ""),
+            ("Test Options", f"{arm_count:,.0f}", ""),
         ],
     )
-    output = pd.DataFrame(plan_rows)[["Group", "Arm", "Role", "Required Accounts", "Traffic Allocation", "Flow per Period", "Test Duration"]].copy()
-    output["Arm"] = output["Arm"].map(lambda value: format_strategy_value(value, strategy))
+    raw_output = pd.DataFrame(plan_rows)[["Group", "Arm", "Role", "Required Accounts", "Traffic Allocation", "Flow per Period", "Test Duration"]].copy()
+    raw_output["Test Option"] = raw_output["Arm"].map(lambda value: format_strategy_value(value, strategy))
+    st.markdown("**How the Test Will Be Sized**")
+    chart_left, chart_right = st.columns(2)
+    with chart_left:
+        st.caption("Accounts required for every audience and test option")
+        st.plotly_chart(
+            customer_required_accounts_chart(raw_output),
+            use_container_width=True,
+            key="customer_required_accounts_chart_v1",
+        )
+    with chart_right:
+        st.caption("How incoming eligible traffic should be split")
+        st.plotly_chart(
+            customer_traffic_allocation_chart(raw_output),
+            use_container_width=True,
+            key="customer_traffic_allocation_chart_v1",
+        )
+    output = raw_output.drop(columns=["Arm"]).copy()
     output["Traffic Allocation"] = output["Traffic Allocation"].map(lambda value: percent(value, 1))
     flow_label = f"Flow per {duration_unit(design.traffic_frequency).title()}"
     output["Flow per Period"] = output["Flow per Period"].map(lambda value: f"{value:,.1f}")
     output["Test Duration"] = output["Test Duration"].map(lambda value: duration_label(int(math.ceil(value)), design.traffic_frequency))
-    output = output.rename(columns={"Arm": "Strategy Arm", "Flow per Period": flow_label})
+    output = output.rename(
+        columns={
+            "Role": "Type",
+            "Traffic Allocation": "Share of Eligible Traffic",
+            "Flow per Period": flow_label,
+        }
+    )
+    output = output[["Group", "Test Option", "Type", "Required Accounts", "Share of Eligible Traffic", flow_label, "Test Duration"]]
     st.dataframe(output, use_container_width=True, hide_index=True)
     if total_duration > design.max_enrollment_periods:
         st.warning(
             f"This design needs about {duration_label(int(math.ceil(total_duration)), design.traffic_frequency)}, "
             f"which is longer than the {duration_label(design.max_enrollment_periods, design.traffic_frequency)} enrollment window. "
-            "Reduce the number of arms, expand eligible traffic, increase the detectable-effect threshold, or allow a longer test."
+            "Reduce the number of test options, expand eligible traffic, increase the decision threshold, or allow a longer test."
         )
     else:
         st.success(f"All groups can collect their required samples within {duration_label(design.max_enrollment_periods, design.traffic_frequency)}.")
-    with st.expander("Planning Methodology", expanded=False):
+    with st.expander("How this plan was calculated (advanced)", expanded=False):
         st.write(methodology)
-        st.write("Traffic is allocated from the required account targets so arms within each customer group finish at approximately the same time.")
+        st.write("Traffic is allocated from the required account targets so options within each customer group finish at approximately the same time.")
         if comparisons:
             detail = pd.DataFrame(comparisons)
             if "Planned Power" in detail.columns:
@@ -1891,21 +2135,24 @@ def render_customer_plan(
 
 
 def customer_plan_step() -> None:
-    st.subheader("Plan")
     strategy: StrategyConfig = st.session_state.strategy_config
     design: DesignConfig = st.session_state.design_config
     primary = st.session_state.metrics_config["Primary"]
     historical_df = st.session_state.historical_df
     if historical_df.empty:
-        st.info("Configure Data, Groups, and Metrics before planning the experiment.")
+        st.info("Complete Bring Data, Choose Audience, and Pick Outcome before building the plan.")
         return
 
-    st.markdown("**Business Planning Inputs**")
-    st.caption("Set the smallest business impact worth detecting and the time available for the test. Statistical defaults are available under Advanced settings.")
+    render_business_guide(
+        "Set the smallest improvement worth acting on and the longest test the business can run.",
+        "Output: accounts, traffic, and duration",
+    )
+    st.markdown("**What Makes This Test Worth Running?**")
+    st.caption("Use a decision threshold, not a forecast. A smaller improvement requires more customers.")
     primary.effect_type = "Relative %"
     c1, c2, c3 = st.columns(3)
     shown_effect = c1.number_input(
-        "Smallest Effect Worth Detecting (%)",
+        "Smallest Improvement Worth Acting On (%)",
         min_value=0.1,
         max_value=100.0,
         value=float(primary.effect_value) * 100,
@@ -1916,7 +2163,7 @@ def customer_plan_step() -> None:
     primary.effect_value = shown_effect / 100
     frequency_options = ["Monthly", "Weekly", "Daily"]
     design.traffic_frequency = c2.selectbox(
-        "Traffic Frequency",
+        "How Often Eligible Customers Arrive",
         frequency_options,
         index=frequency_options.index(design.traffic_frequency) if design.traffic_frequency in frequency_options else 0,
         key="group_plan_frequency_v1",
@@ -1926,7 +2173,7 @@ def customer_plan_step() -> None:
         design.max_enrollment_periods = default_window
     design.max_enrollment_periods = int(
         c3.number_input(
-            f"Maximum Test Duration ({duration_unit(design.traffic_frequency)}s)",
+            f"Longest Test You Can Run ({duration_unit(design.traffic_frequency)}s)",
             min_value=1,
             value=int(design.max_enrollment_periods),
             step=1,
@@ -2027,14 +2274,14 @@ def customer_plan_step() -> None:
         if not treatments:
             st.error("Configure at least one treatment arm in Strategy before planning.")
             return
-        st.markdown("**Strategy Arms**")
+        st.markdown("**Test Options**")
         arm_rows = [{"Role": "Control", "Strategy Arm": format_strategy_value(control, strategy)}]
         arm_rows.extend({"Role": "Treatment", "Strategy Arm": format_strategy_value(arm, strategy)} for arm in treatments)
         shown_arms = pd.DataFrame(arm_rows)
         if strategy.strategy_type == "Categorical Strategy":
             shown_arms["What the customer receives"] = [strategy.arm_descriptions.get(str(arm), "") for arm in [control, *treatments]]
         st.dataframe(shown_arms, use_container_width=True, hide_index=True)
-        st.caption("These arms are applied consistently across customer groups. Sample size and traffic are calculated separately for each group.")
+        st.caption("These options are applied consistently across customer groups. Required accounts and traffic are calculated separately for each group.")
 
         all_plan_rows: list[dict] = []
         all_comparisons: list[dict] = []
@@ -2061,7 +2308,6 @@ def customer_plan_step() -> None:
                     all_plan_rows.extend(plan_rows)
                     all_comparisons.extend([{**row, "Group": group} for row in comparisons])
                     binding_labels.append(f"{group}: {binding}")
-                    st.caption(f"Binding requirement: {binding}")
                 except ValueError as exc:
                     st.error(str(exc))
         render_customer_plan(
@@ -2676,8 +2922,13 @@ def customer_group_analysis_step() -> None:
                 threshold = guardrail_absolute_threshold(metric)
                 table["Guardrail Status"] = result.apply(lambda row: "Control" if row["Is Control"] else guardrail_status(row, threshold, metric.direction), axis=1)
             st.dataframe(table, use_container_width=True, hide_index=True)
-            st.plotly_chart(forest_plot(result, strategy.strategy_name), use_container_width=True, key=f"group_forest_{group_index}_{view_role}_v1")
-            st.plotly_chart(response_plot(st.session_state.group_response_results[group][view_role], strategy.strategy_name, metric.name), use_container_width=True, key=f"group_response_{group_index}_{view_role}_v1")
+            result_left, result_right = st.columns(2)
+            with result_left:
+                st.caption("Estimated lift versus the current / BAU option")
+                st.plotly_chart(forest_plot(result, strategy.strategy_name), use_container_width=True, key=f"group_forest_{group_index}_{view_role}_v1")
+            with result_right:
+                st.caption("Observed outcome for every test option")
+                st.plotly_chart(response_plot(st.session_state.group_response_results[group][view_role], strategy.strategy_name, metric.name), use_container_width=True, key=f"group_response_{group_index}_{view_role}_v1")
 
 
 def customer_group_decision_step() -> None:
@@ -2718,7 +2969,10 @@ def customer_group_decision_step() -> None:
 
 
 def analysis_step() -> None:
-    st.subheader("Analysis")
+    render_business_guide(
+        "Upload the completed randomized test. We will compare each test option with the current experience.",
+        "Output: lift and uncertainty",
+    )
     strategy: StrategyConfig = st.session_state.strategy_config
     design: DesignConfig = st.session_state.design_config
     source = st.radio("Experiment Result Data Source", ["Upload File", "Internal Data", "Synthetic Demo"], index=0, horizontal=True, key="customer_analysis_source_v2")
@@ -2758,14 +3012,14 @@ def analysis_step() -> None:
     inferred_unit = analysis_config.unit_id_column if analysis_config.unit_id_column in cols else next((column for column in cols if column.lower() in {"customer_id", "account_id", "user_id", "member_id"}), "")
     default_assignment = strategy.assignment_column if strategy.assignment_column in cols else ("assigned_credit_line" if "assigned_credit_line" in cols else cols[0])
     map_left, map_right = st.columns(2)
-    analysis_config.unit_id_column = map_left.selectbox("Experimental Unit ID", cols, index=cols.index(inferred_unit) if inferred_unit in cols else 0)
-    assignment_col = map_right.selectbox("Assignment Column", cols, index=cols.index(default_assignment))
+    analysis_config.unit_id_column = map_left.selectbox("Customer or Account ID", cols, index=cols.index(inferred_unit) if inferred_unit in cols else 0)
+    assignment_col = map_right.selectbox("Test Group Column", cols, index=cols.index(default_assignment))
     control, treatments = configured_arms(strategy)
     available_arms = sorted(df[assignment_col].dropna().unique().tolist())
     arm_left, arm_right = st.columns(2)
-    control = arm_left.selectbox("Control Arm", available_arms, index=available_arms.index(control) if control in available_arms else 0)
-    treatments = arm_right.multiselect("Treatment Arms", [arm for arm in available_arms if arm != control], default=[arm for arm in available_arms if arm != control])
-    with st.expander("Additional metrics and statistical settings", expanded=False):
+    control = arm_left.selectbox("Current / BAU Group", available_arms, index=available_arms.index(control) if control in available_arms else 0)
+    treatments = arm_right.multiselect("Test Groups", [arm for arm in available_arms if arm != control], default=[arm for arm in available_arms if arm != control])
+    with st.expander("Additional outcomes and advanced settings", expanded=False):
         primary = st.session_state.metrics_config["Primary"]
         p1, p2 = st.columns(2)
         primary.metric_type = p1.selectbox("Primary Metric Type", ["Continuous", "Binary"], index=["Continuous", "Binary"].index(primary.metric_type), key="analysis_primary_type_v1")
@@ -2803,7 +3057,7 @@ def analysis_step() -> None:
             continue
         if preferred is None:
             preferred = next((column for column in numeric if column not in used_result_columns), numeric[0])
-        result_columns[role] = st.selectbox(f"{role} Result Column", numeric, index=numeric.index(preferred), key=f"result_{role}_v2")
+        result_columns[role] = st.selectbox(f"{role} Outcome Column", numeric, index=numeric.index(preferred), key=f"result_{role}_v2")
         used_result_columns.add(result_columns[role])
         if result_columns[role] == assignment_col:
             st.error(f"{role} Result Column cannot be the Experimental Assignment Column.")
@@ -2840,7 +3094,7 @@ def analysis_step() -> None:
     metric_decisions = tuple((role, metric.direction, metric.effect_type, metric.guardrail_threshold) for role, metric in st.session_state.metrics_config.items())
     current_fingerprint = repr((data_hash, assignment_col, control, tuple(treatments), tuple(sorted(outcomes.items())), metric_decisions, design.alpha, design.multiplicity_method))
     st.session_state.customer_analysis_is_current = st.session_state.customer_analysis_fingerprint == current_fingerprint
-    if st.button("Run Configured Analysis", type="primary", disabled=bool(validation_errors) or invalid_mapping):
+    if st.button("Calculate Results", type="primary", disabled=bool(validation_errors) or invalid_mapping):
         if invalid_mapping or validation_errors:
             st.error("Fix result-column mappings before running Analysis.")
             return
@@ -2873,13 +3127,16 @@ def analysis_step() -> None:
             threshold = guardrail_absolute_threshold(metric)
             table["Guardrail Status"] = result.apply(lambda row: "Control" if row["Is Control"] else guardrail_status(row, threshold, metric.direction), axis=1)
         st.dataframe(table, use_container_width=True, hide_index=True)
-        st.plotly_chart(forest_plot(result, strategy.strategy_name), use_container_width=True)
-        if strategy.strategy_type == "Numeric Strategy":
+        result_left, result_right = st.columns(2)
+        with result_left:
+            st.caption("Estimated lift versus the current / BAU option")
+            st.plotly_chart(forest_plot(result, strategy.strategy_name), use_container_width=True)
+        with result_right:
+            st.caption("Observed outcome for every test option")
             st.plotly_chart(response_plot(st.session_state.response_by_role[view_role], strategy.strategy_name, metric.name), use_container_width=True)
 
 
 def decision_step() -> None:
-    st.subheader("Decision")
     results = st.session_state.analysis_results_by_role
     if "Primary" not in results or not st.session_state.customer_analysis_is_current:
         st.info("Run Analysis before generating the Decision summary.")
@@ -2934,7 +3191,10 @@ def decision_step() -> None:
 
 
 def ts_data_step() -> None:
-    st.subheader("Data")
+    render_business_guide(
+        "Bring one historical series with a date and the business outcome you want to measure.",
+        "Output: analysis-ready history",
+    )
     cfg: TimeSeriesConfig = st.session_state.ts_config
     source = st.radio("Data Source", ["Upload File", "Internal Data", "Synthetic Demo"], index=["Upload File", "Internal Data", "Synthetic Demo"].index(cfg.data_source), horizontal=True)
     cfg.data_source = source
@@ -2967,14 +3227,22 @@ def ts_data_step() -> None:
     cfg.campaign_flag_column = cfg.campaign_flag_column if cfg.campaign_flag_column in ["None"] + list(df.columns) else inferred["campaign_flag"]
     cfg.exposure_column = cfg.exposure_column if cfg.exposure_column in ["None"] + numeric else "None"
 
-    st.markdown("**Data Mapping**")
-    c1, c2, c3, c4, c5 = st.columns(5)
-    cfg.date_column = c1.selectbox("Date Column", list(df.columns), index=list(df.columns).index(cfg.date_column) if cfg.date_column in df.columns else 0)
-    cfg.outcome_column = c2.selectbox("Outcome Column", numeric, index=numeric.index(cfg.outcome_column) if cfg.outcome_column in numeric else 0)
+    st.markdown("**Tell Us What Each Column Means**")
+    c1, c2, c3 = st.columns(3)
+    cfg.date_column = c1.selectbox("Date", list(df.columns), index=list(df.columns).index(cfg.date_column) if cfg.date_column in df.columns else 0)
+    cfg.outcome_column = c2.selectbox("Business Outcome", numeric, index=numeric.index(cfg.outcome_column) if cfg.outcome_column in numeric else 0)
+    exposure_options = ["None"] + [column for column in numeric if column != cfg.outcome_column]
+    cfg.exposure_column = c3.selectbox(
+        "Volume / Customer Count (optional)",
+        exposure_options,
+        index=exposure_options.index(cfg.exposure_column) if cfg.exposure_column in exposure_options else 0,
+        help="Used only to project operational volume. It is not the statistical time-series sample size.",
+    )
     duplicate_options = ["Fail validation", "Average", "Sum"]
-    cfg.duplicate_policy = c3.selectbox("Duplicate Timestamps", duplicate_options, index=duplicate_options.index(cfg.duplicate_policy) if cfg.duplicate_policy in duplicate_options else 0)
-    cfg.missing_policy = c4.selectbox("Missing Periods", ["Fail validation", "Interpolate", "Fill missing counts with zero", "Keep"], index=["Fail validation", "Interpolate", "Fill missing counts with zero", "Keep"].index(cfg.missing_policy))
-    cfg.exposure_column = c5.selectbox("Exposure / Customer Count (Optional)", ["None"] + [column for column in numeric if column != cfg.outcome_column], index=(["None"] + [column for column in numeric if column != cfg.outcome_column]).index(cfg.exposure_column) if cfg.exposure_column in (["None"] + [column for column in numeric if column != cfg.outcome_column]) else 0, help="Optional operational volume used only to project expected exposure. It is not the statistical time-series sample size.")
+    with st.expander("Advanced data handling", expanded=False):
+        a1, a2 = st.columns(2)
+        cfg.duplicate_policy = a1.selectbox("When a date appears more than once", duplicate_options, index=duplicate_options.index(cfg.duplicate_policy) if cfg.duplicate_policy in duplicate_options else 0)
+        cfg.missing_policy = a2.selectbox("When a date is missing", ["Fail validation", "Interpolate", "Fill missing counts with zero", "Keep"], index=["Fail validation", "Interpolate", "Fill missing counts with zero", "Keep"].index(cfg.missing_policy))
     try:
         # Detect cadence from this raw dataset so a previous upload's frequency
         # cannot leak into the current analysis.
@@ -3008,7 +3276,10 @@ def ts_data_step() -> None:
 
 
 def ts_setup_step() -> None:
-    st.subheader("Setup")
+    render_business_guide(
+        "Mark when the campaign began. The chart below confirms which observations are before and after launch.",
+        "Output: campaign measurement window",
+    )
     cfg: TimeSeriesConfig = st.session_state.ts_config
     data = st.session_state.ts_prepared_df
     if data.empty:
@@ -3018,9 +3289,9 @@ def ts_setup_step() -> None:
     max_date = data["_date"].max().date()
     default_launch = bounded_date(cfg.intervention_date, min_date, max_date, data["_date"].quantile(0.75).date())
     c1, c2, c3 = st.columns(3)
-    launch = c1.date_input("Campaign Launch", value=default_launch, min_value=min_date, max_value=max_date)
+    launch = c1.date_input("When did the campaign start?", value=default_launch, min_value=min_date, max_value=max_date)
     cfg.intervention_date = launch.isoformat()
-    end_enabled = c2.checkbox("Campaign End Date", value=bool(cfg.campaign_end_date))
+    end_enabled = c2.checkbox("The campaign had a fixed end date", value=bool(cfg.campaign_end_date))
     if end_enabled:
         end_value = pd.Timestamp(cfg.campaign_end_date).date() if cfg.campaign_end_date else max_date
         cfg.campaign_end_date = c2.date_input("End Date", value=end_value, min_value=launch, max_value=max_date).isoformat()
@@ -3045,7 +3316,10 @@ def ts_setup_step() -> None:
 
 
 def ts_plan_setup_step() -> None:
-    st.subheader("Campaign Setup")
+    render_business_guide(
+        "Choose the planned launch date so the recommendation can show the expected readout date.",
+        "Output: planned launch point",
+    )
     cfg: TimeSeriesConfig = st.session_state.ts_config
     data = st.session_state.ts_prepared_df
     if data.empty:
@@ -3054,7 +3328,7 @@ def ts_plan_setup_step() -> None:
     min_date, historical_end = data["_date"].min().date(), data["_date"].max().date()
     offsets = {"Daily": pd.Timedelta(days=1), "Weekly": pd.Timedelta(days=7), "Monthly": pd.DateOffset(months=1)}
     default_launch = bounded_date(cfg.planned_launch_date, min_date, historical_end + pd.Timedelta(days=730), historical_end + offsets.get(cfg.frequency, pd.Timedelta(days=7)))
-    launch = st.date_input("Planned Campaign Launch", value=default_launch, min_value=min_date, max_value=historical_end + pd.Timedelta(days=730))
+    launch = st.date_input("When do you plan to launch?", value=default_launch, min_value=min_date, max_value=historical_end + pd.Timedelta(days=730))
     cfg.planned_launch_date = launch.isoformat()
     detected, _ = detect_frequency(data)
     cfg.frequency = detected
@@ -3067,7 +3341,10 @@ def ts_plan_setup_step() -> None:
 
 
 def ts_analysis_step() -> None:
-    st.subheader("Analysis")
+    render_business_guide(
+        "Choose a quick comparison or an adjusted impact estimate. The selected result will appear automatically in See Impact.",
+        "Output: measured campaign impact",
+    )
     cfg: TimeSeriesConfig = st.session_state.ts_config
     data = st.session_state.ts_prepared_df
     if data.empty:
@@ -3076,10 +3353,25 @@ def ts_analysis_step() -> None:
     if not cfg.intervention_date:
         st.info("Select the campaign launch date to define the pre- and post-periods.")
         return
-    cfg.analysis_method = st.radio("Analysis Method", ["Pre–Post Analysis", "Structural Time Series Counterfactual"], horizontal=True)
+    cfg.analysis_method = st.radio(
+        "How should impact be measured?",
+        ["Pre–Post Analysis", "Structural Time Series Counterfactual"],
+        horizontal=True,
+        format_func=lambda value: "Quick before-and-after comparison" if value == "Pre–Post Analysis" else "Adjusted impact estimate",
+    )
     if cfg.analysis_method == "Pre–Post Analysis":
-        st.write("Descriptive comparison only; it does not adjust for trend, seasonality, or concurrent changes.")
-        cfg.comparison_window = st.radio("Comparison Window", ["Symmetric", "All available", "Custom date range"], index=["Symmetric", "All available", "Custom date range"].index(cfg.comparison_window) if cfg.comparison_window in ["Symmetric", "All available", "Custom date range"] else 0, horizontal=True)
+        st.caption("Fast descriptive comparison. Use it for context, not as a causal claim: it does not adjust for trend, seasonality, or other changes.")
+        cfg.comparison_window = st.radio(
+            "Which periods should be compared?",
+            ["Symmetric", "All available", "Custom date range"],
+            index=["Symmetric", "All available", "Custom date range"].index(cfg.comparison_window) if cfg.comparison_window in ["Symmetric", "All available", "Custom date range"] else 0,
+            horizontal=True,
+            format_func=lambda value: {
+                "Symmetric": "Same number before and after",
+                "All available": "All available history",
+                "Custom date range": "Choose dates",
+            }[value],
+        )
         if cfg.comparison_window == "Symmetric":
             cfg.symmetric_periods = st.number_input("Periods before and after", min_value=2, max_value=104, value=int(cfg.symmetric_periods), step=1)
         elif cfg.comparison_window == "All available":
@@ -3092,7 +3384,12 @@ def ts_analysis_step() -> None:
             cfg.custom_pre_end = a.date_input("Pre-period end", value=pre_data["_date"].max().date(), min_value=pre_data["_date"].min().date(), max_value=pre_data["_date"].max().date()).isoformat()
             cfg.custom_post_start = b.date_input("Post-period start", value=post_data["_date"].min().date(), min_value=post_data["_date"].min().date(), max_value=post_data["_date"].max().date()).isoformat()
             cfg.custom_post_end = b.date_input("Post-period end", value=post_data["_date"].max().date(), min_value=post_data["_date"].min().date(), max_value=post_data["_date"].max().date()).isoformat()
-        cfg.comparison_metric = st.radio("Comparison Metric", ["Average per period", "Total"], horizontal=True)
+        cfg.comparison_metric = st.radio(
+            "Compare",
+            ["Average per period", "Total"],
+            horizontal=True,
+            format_func=lambda value: "Average outcome per period" if value == "Average per period" else "Total outcome",
+        )
         prepost_fingerprint = f"{method_config_fingerprint(cfg, 'Pre–Post Analysis')}:{data_fingerprint(data)}"
         try:
             st.session_state.ts_prepost_result = run_pre_post_analysis(data, cfg.intervention_date, cfg.campaign_end_date, cfg.comparison_metric, cfg.pre_window, cfg.post_window, cfg.comparison_window, int(cfg.symmetric_periods), (cfg.custom_pre_start, cfg.custom_pre_end, cfg.custom_post_start, cfg.custom_post_end))
@@ -3104,36 +3401,59 @@ def ts_analysis_step() -> None:
             st.error(f"Pre–Post analysis is not ready: {exc}")
         if st.session_state.ts_prepost_result:
             result = st.session_state.ts_prepost_result
-            st.success("Pre–Post Analysis Ready")
-            st.caption(f"{result['pre_observations']} periods before vs {result['post_observations']} periods after | Estimated change: {percent(result['percent_change'], 1)}")
+            render_ts_kpi_panel(
+                "Before-and-After Result Ready",
+                "The result updates automatically whenever the selected window or comparison settings change.",
+                "Ready to view",
+                [
+                    ("Periods Before", f"{result['pre_observations']:,}", ""),
+                    ("Periods After", f"{result['post_observations']:,}", ""),
+                    ("Estimated Change", percent(result["percent_change"], 1), "positive" if result["percent_change"] >= 0 else "negative"),
+                    ("Method", "Pre–Post", ""),
+                ],
+                analysis=True,
+            )
     else:
-        st.write("Estimate the expected no-intervention trajectory using pre-intervention history.")
+        st.caption("Estimate what likely would have happened without the campaign using pre-campaign patterns and unaffected comparison signals.")
         numeric = predictor_candidates(data, cfg.outcome_column, cfg.date_column, cfg.campaign_flag_column)
-        st.markdown("**Optional Predictors**")
-        st.caption("Select time series associated with the outcome that are not affected by the intervention.")
-        cfg.selected_covariates = st.multiselect("Optional Predictors", numeric, default=[col for col in cfg.selected_covariates if col in numeric], format_func=humanize_column_name)
-        cfg.seasonality = st.selectbox("Seasonality", ["Auto", "None", "Weekly", "Monthly", "Annual"], index=["Auto", "None", "Weekly", "Monthly", "Annual"].index(cfg.seasonality))
-        cfg.prediction_interval = st.selectbox("Confidence Level", [0.8, 0.9, 0.95], index=[0.8, 0.9, 0.95].index(cfg.prediction_interval), format_func=lambda value: f"{int(value * 100)}%")
-        with st.expander("Advanced Settings", expanded=False):
+        st.markdown("**Unaffected Comparison Signals (Optional)**")
+        st.caption("Choose related series that the campaign could not have changed, such as a control product or external demand index.")
+        cfg.selected_covariates = st.multiselect("Comparison Signals", numeric, default=[col for col in cfg.selected_covariates if col in numeric], format_func=humanize_column_name)
+        with st.expander("Advanced model settings", expanded=False):
+            cfg.seasonality = st.selectbox("Seasonality", ["Auto", "None", "Weekly", "Monthly", "Annual"], index=["Auto", "None", "Weekly", "Monthly", "Annual"].index(cfg.seasonality))
+            cfg.prediction_interval = st.selectbox("Confidence Level", [0.8, 0.9, 0.95], index=[0.8, 0.9, 0.95].index(cfg.prediction_interval), format_func=lambda value: f"{int(value * 100)}%")
             cfg.local_trend = st.checkbox("Use Local Trend", value=cfg.local_trend)
             cfg.simulation_seed = st.number_input("Simulation Seed", min_value=1, max_value=999999, value=int(cfg.simulation_seed), step=1)
             cfg.holdout_length = st.number_input("Holdout Length", min_value=4, max_value=24, value=int(cfg.holdout_length), step=1)
         current_fingerprint = f"{method_config_fingerprint(cfg, 'Structural Time Series Counterfactual')}:{data_fingerprint(data)}"
         status = st.session_state.ts_structural_status
         has_result = bool(st.session_state.ts_bsts_result)
-        action_label = "Recalculate Analysis" if has_result else "Run Analysis"
+        action_label = "Recalculate Impact" if has_result else "Calculate Impact"
         if st.session_state.ts_structural_fingerprint and st.session_state.ts_structural_fingerprint != current_fingerprint:
             status = "stale"
             st.session_state.ts_structural_status = status
-            action_label = "Update Analysis"
-            st.warning("⚠ Results out of date\n\nSettings changed since the last analysis.")
+            action_label = "Update Impact"
+            st.warning("Results are out of date because the settings changed.")
         if status == "running":
-            st.info("⟳ Running analysis...\n\nFitting the expected no-intervention trajectory")
+            st.info("Calculating the expected no-campaign outcome...")
         elif status == "completed":
-            st.success("✓ Analysis completed")
+            st.success("Impact calculation completed")
             st.caption(f"Last calculated: {st.session_state.ts_structural_timestamp}")
         elif status == "failed":
             st.warning("Analysis failed\n\nThe model could not complete with the current settings. Review the configuration and try again.")
+        pre_observations = int((data["_date"] < pd.Timestamp(cfg.intervention_date)).sum())
+        render_ts_kpi_panel(
+            "Adjusted Impact Estimate Ready",
+            "Build an expected no-campaign outcome from the available history and comparison signals.",
+            "Result available" if has_result and status == "completed" else "Ready to run",
+            [
+                ("History Before Campaign", f"{pre_observations:,}", ""),
+                ("Comparison Signals", f"{len(cfg.selected_covariates):,}", ""),
+                ("Data Frequency", cfg.frequency, ""),
+                ("Model Setup", "Automatic", ""),
+            ],
+            analysis=True,
+        )
         button_disabled = status == "running"
         if st.button("Running Analysis..." if button_disabled else action_label, type="primary", key="ts_run_structural", disabled=button_disabled):
             st.session_state.ts_structural_status = "running"
@@ -3155,7 +3475,6 @@ def ts_analysis_step() -> None:
 
 
 def ts_results_step() -> None:
-    st.subheader("Results")
     cfg: TimeSeriesConfig = st.session_state.ts_config
     data = st.session_state.ts_prepared_df
     if data.empty or not cfg.intervention_date:
@@ -3164,22 +3483,29 @@ def ts_results_step() -> None:
     evaluation = data[data["_date"] >= pd.Timestamp(cfg.intervention_date)]
     first_treated = evaluation["_date"].min() if not evaluation.empty else pd.Timestamp(cfg.intervention_date)
     evaluation_end = evaluation["_date"].max() if not evaluation.empty else data["_date"].max()
-    st.markdown("**Analysis Definition**")
-    d1, d2, d3 = st.columns(3)
-    d1.write(f"**Outcome**\n\n{humanize_column_name(cfg.outcome_column)}")
-    d2.write(f"**Intervention**\n\n{pd.Timestamp(cfg.intervention_date).strftime('%b %-d, %Y')}\n\n**First Treated Observation**\n\n{first_treated.strftime('%b %-d, %Y')}")
-    d3.write(f"**Evaluation Period**\n\n{first_treated.strftime('%b %-d, %Y')} – {evaluation_end.strftime('%b %-d, %Y')} · {len(evaluation)} weeks\n\n**Method**\n\n{cfg.analysis_method}")
+    with st.expander("What was analyzed", expanded=False):
+        d1, d2, d3 = st.columns(3)
+        d1.write(f"**Outcome**\n\n{humanize_column_name(cfg.outcome_column)}")
+        d2.write(f"**Intervention**\n\n{pd.Timestamp(cfg.intervention_date).strftime('%b %-d, %Y')}\n\n**First Treated Observation**\n\n{first_treated.strftime('%b %-d, %Y')}")
+        d3.write(f"**Evaluation Period**\n\n{first_treated.strftime('%b %-d, %Y')} – {evaluation_end.strftime('%b %-d, %Y')} · {len(evaluation)} {duration_unit(cfg.frequency)}s\n\n**Method**\n\n{cfg.analysis_method}")
     current_fingerprint = f"{method_config_fingerprint(cfg, cfg.analysis_method)}:{data_fingerprint(data)}"
     if cfg.analysis_method == "Pre–Post Analysis":
         prepost = st.session_state.ts_prepost_result if st.session_state.ts_prepost_fingerprint == current_fingerprint else None
         if prepost:
+            render_ts_kpi_panel(
+                "Before-and-After Result",
+                "A descriptive before-and-after comparison for the selected campaign window.",
+                "Descriptive result",
+                [
+                    ("Before Campaign", number(prepost["pre_value"], 2), ""),
+                    ("After Campaign", number(prepost["post_value"], 2), ""),
+                    ("Absolute Change", number(prepost["absolute_change"], 2), "positive" if prepost["absolute_change"] >= 0 else "negative"),
+                    ("Percent Change", percent(prepost["percent_change"], 1), "positive" if prepost["percent_change"] >= 0 else "negative"),
+                ],
+                analysis=True,
+            )
+            st.markdown('<div class="ts-panel-title">Outcome Through Time</div>', unsafe_allow_html=True)
             st.plotly_chart(time_series_line(data, cfg.intervention_date, humanize_column_name(cfg.outcome_column)), use_container_width=True)
-            st.markdown("**Pre–Post Analysis**")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Before Campaign", number(prepost["pre_value"], 2))
-            c2.metric("After Campaign", number(prepost["post_value"], 2))
-            c3.metric("Absolute Change", number(prepost["absolute_change"], 2))
-            c4.metric("Percent Change", percent(prepost["percent_change"], 1))
             st.plotly_chart(pre_post_bar(prepost["pre_value"], prepost["post_value"], humanize_column_name(cfg.outcome_column)), use_container_width=True)
             st.info("Pre–Post comparison does not adjust for trend, seasonality, or concurrent changes.")
         else:
@@ -3192,18 +3518,20 @@ def ts_results_step() -> None:
     if bsts:
         label = humanize_column_name(cfg.outcome_column)
         interp = build_business_interpretation(bsts["cumulative_impact"], bsts["relative_impact"], bsts["prediction_interval"], bsts["simulation_probability_positive"], bsts.get("reliability", "Poor"), cfg.outcome_column)
-        st.markdown("**Campaign Impact**")
-        st.caption("Method: Structural Time Series Counterfactual")
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric(incremental_outcome_label(cfg.outcome_column), number(bsts["cumulative_impact"], 0))
-        c2.metric("Estimated Lift", percent(bsts["relative_impact"], 1))
         low, high = bsts["prediction_interval"]
-        c3.metric(f"Likely Impact Range ({percent(bsts['interval_level'], 0)})", f"{low:+,.0f} to {high:+,.0f}", help="The range of campaign impact values that are reasonably consistent with the model and observed data.")
-        c4.metric("Probability Impact Is Positive", probability_positive_label(bsts["simulation_probability_positive"]), help="The share of model simulations in which the estimated campaign effect is above zero. This depends on the counterfactual model being appropriate.")
-        st.markdown("**Actual Outcome**")
-        a1, a2 = st.columns(2)
-        a1.metric(f"Actual {label}", number(bsts["observed_total"], 0))
-        a2.metric("Expected Without Campaign", number(bsts["expected_total"], 0))
+        impact_positive = bsts["cumulative_impact"] >= 0
+        render_ts_kpi_panel(
+            "Adjusted Campaign Impact",
+            f"{percent(bsts['interval_level'], 0)} impact interval: {low:+,.0f} to {high:+,.0f} · Probability positive: {probability_positive_label(bsts['simulation_probability_positive'])}",
+            f"{bsts.get('reliability', 'Review')} reliability",
+            [
+                ("Observed", number(bsts["observed_total"], 0), ""),
+                ("Expected Without Campaign", number(bsts["expected_total"], 0), ""),
+                (incremental_outcome_label(cfg.outcome_column), number(bsts["cumulative_impact"], 0), "positive" if impact_positive else "negative"),
+                ("Relative Impact", percent(bsts["relative_impact"], 1), "positive" if impact_positive else "negative"),
+            ],
+            analysis=True,
+        )
         st.markdown("**Why this result?**")
         st.write(interp["interpretation"])
         if interp["status"] == "Positive — Strong Evidence":
@@ -3219,7 +3547,7 @@ def ts_results_step() -> None:
         st.markdown("**Cumulative Estimated Impact**")
         st.caption(f"Running total of estimated incremental {label.lower()} since campaign launch. Positive values mean cumulative outcomes were above the estimated no-campaign trajectory; negative values mean they were below it.")
         st.plotly_chart(cumulative_impact_chart(bsts["result"], label, chart_context, bsts["cumulative_impact"]), use_container_width=True)
-        st.markdown("**Model Reliability**")
+        st.markdown("**Can This Estimate Be Trusted?**")
         backtest = bsts.get("backtest", {})
         details = bsts.get("reliability_details", {})
         components = details.get("components", {})
@@ -3260,8 +3588,8 @@ def ts_results_step() -> None:
     prepost_current_fingerprint = f"{method_config_fingerprint(cfg, 'Pre–Post Analysis')}:{data_fingerprint(data)}"
     prepost = st.session_state.ts_prepost_result if st.session_state.ts_prepost_fingerprint == prepost_current_fingerprint else None
     if prepost:
-        with st.expander("Naive Pre–Post Benchmark", expanded=False):
-            st.metric("Descriptive Benchmark", percent(prepost["percent_change"], 1))
+        with st.expander("Simple Before-and-After Comparison", expanded=False):
+            st.metric("Before-and-After Change", percent(prepost["percent_change"], 1))
             st.caption("Pre–Post comparison does not adjust for trend, seasonality, or concurrent changes.")
             st.plotly_chart(pre_post_bar(prepost["pre_value"], prepost["post_value"], humanize_column_name(cfg.outcome_column)), use_container_width=True)
     if st.session_state.ts_structural_timestamp:
@@ -3270,8 +3598,10 @@ def ts_results_step() -> None:
 
 def ts_planning_step() -> None:
     """Pre-launch planning workflow; intentionally does not expose an analysis-method choice."""
-    st.subheader("Campaign Duration Planner")
-    st.caption("Estimate how long a campaign needs to run to detect a meaningful change using historical outcome behavior.")
+    render_business_guide(
+        "Tell us the smallest impact that would change a business decision and how long the campaign can run.",
+        "Output: recommended readout date",
+    )
     cfg: TimeSeriesConfig = st.session_state.ts_config
     data = st.session_state.ts_prepared_df
     if data.empty:
@@ -3281,34 +3611,44 @@ def ts_planning_step() -> None:
     planning_data = data[data["_date"] < launch].copy()
     if launch <= data["_date"].max():
         st.warning("Planned campaign launch occurs before the end of the available historical data. Only data before launch will be used for planning.")
-    planning_objective = st.radio("Planning Objective", ["Find duration for a meaningful effect", "Find detectable effect by duration"], horizontal=True, key="ts_plan_objective")
-    effect_type = st.selectbox("Effect Scale", ["Relative Lift (%)", "Absolute Effect"], key="ts_plan_effect_type")
+    planning_objective = st.radio(
+        "What do you want to learn?",
+        ["Find duration for a meaningful effect", "Find detectable effect by duration"],
+        horizontal=True,
+        format_func=lambda value: "How long should the campaign run?" if value.startswith("Find duration") else "What impact can each duration detect?",
+        key="ts_plan_objective",
+    )
+    effect_type = st.selectbox(
+        "How should impact be shown?",
+        ["Relative Lift (%)", "Absolute Effect"],
+        format_func=lambda value: "Percent change" if value == "Relative Lift (%)" else "Outcome units",
+        key="ts_plan_effect_type",
+    )
     if planning_objective == "Find duration for a meaningful effect":
-        effect = st.number_input("Assumed Minimum Meaningful Effect", min_value=0.0, value=5.0 if effect_type == "Relative Lift (%)" else 200.0, step=0.5, key="ts_plan_effect", help="This is a planning assumption or business threshold, not a forecast of the campaign's actual effect.")
+        effect_label = "Smallest improvement worth acting on (%)" if effect_type == "Relative Lift (%)" else "Smallest improvement worth acting on (outcome units)"
+        effect = st.number_input(effect_label, min_value=0.0, value=5.0 if effect_type == "Relative Lift (%)" else 200.0, step=0.5, key="ts_plan_effect", help="This is a business decision threshold, not a forecast of the campaign's actual effect.")
         planning_effect = effect / 100 if effect_type == "Relative Lift (%)" else effect
     else:
         effect = None
         planning_effect = None
         st.info("No campaign effect is assumed. The planner will estimate the minimum detectable effect for each candidate duration.")
-    st.markdown("**Detectability Settings**")
-    c1, c2 = st.columns(2)
-    alpha = c1.selectbox("Significance Level (Alpha)", [0.05, 0.10], format_func=lambda value: f"{value:.2f}", key="ts_plan_alpha")
-    target_power = c2.selectbox("Target Statistical Power", [0.8, 0.9], format_func=lambda value: f"{int(value * 100)}%", key="ts_plan_power")
-    st.markdown("**Planning Constraints**")
     candidate_durations = planning_durations(cfg.frequency, 10_000)
     maximum = st.selectbox(
-        "Maximum Campaign Duration",
+        "Longest campaign you can run",
         candidate_durations,
         index=len(candidate_durations) - 1,
         format_func=lambda value: duration_label(value, cfg.frequency),
         key=f"ts_plan_max_{cfg.frequency.lower()}",
     )
     st.caption(f"Longest campaign duration the planner will consider. Candidate durations use the detected {cfg.frequency.lower()} data cadence.")
-    gradual = st.checkbox("Gradual ramp-up", key="ts_plan_ramp_enabled")
+    gradual = st.checkbox("Campaign reaches full strength gradually", key="ts_plan_ramp_enabled")
     default_ramp = {"Daily": 7, "Weekly": 4, "Monthly": 1}.get(cfg.frequency, 1)
     ramp = st.number_input(f"Ramp-up duration ({duration_unit(cfg.frequency)}s)", min_value=1, max_value=maximum, value=min(default_ramp, maximum), step=1, key=f"ts_plan_ramp_{cfg.frequency.lower()}") if gradual else 1
     effect_pattern = "gradual_ramp" if gradual else "constant"
-    with st.expander("Advanced / Model Inputs", expanded=False):
+    with st.expander("Advanced model settings", expanded=False):
+        c1, c2 = st.columns(2)
+        alpha = c1.selectbox("False-positive tolerance", [0.05, 0.10], format_func=lambda value: f"{value:.0%}", key="ts_plan_alpha")
+        target_power = c2.selectbox("Detection confidence target", [0.8, 0.9], format_func=lambda value: f"{int(value * 100)}%", key="ts_plan_power")
         st.write(f"Historical observations: {len(planning_data):,} usable before launch")
         st.write(f"Detected frequency: {cfg.frequency}")
         available_predictors = predictor_candidates(planning_data, cfg.outcome_column, cfg.date_column, cfg.campaign_flag_column)
@@ -3327,10 +3667,10 @@ def ts_planning_step() -> None:
     if st.session_state.ts_duration_plan and st.session_state.ts_duration_plan_fingerprint != current_plan_fingerprint:
         st.warning("Duration estimate out of date. Update the inputs and calculate a new estimate.")
     if planning_objective == "Find detectable effect by duration":
-        calculate_label = "Update Detectable Effects" if st.session_state.ts_duration_plan and st.session_state.ts_duration_plan_fingerprint != current_plan_fingerprint else "Calculate Detectable Effects"
+        calculate_label = "Update Recommendation" if st.session_state.ts_duration_plan and st.session_state.ts_duration_plan_fingerprint != current_plan_fingerprint else "Build Recommendation"
         spinner_text = "Calculating minimum detectable effects..."
     else:
-        calculate_label = "Update Duration Estimate" if st.session_state.ts_duration_plan and st.session_state.ts_duration_plan_fingerprint != current_plan_fingerprint else "Calculate Required Duration"
+        calculate_label = "Update Recommendation" if st.session_state.ts_duration_plan and st.session_state.ts_duration_plan_fingerprint != current_plan_fingerprint else "Build Recommendation"
         spinner_text = "Calculating required campaign duration..."
     if st.button(calculate_label, type="primary", key="ts_plan_calculate"):
         with st.spinner(spinner_text):
@@ -3345,15 +3685,15 @@ def ts_planning_step() -> None:
             st.session_state.ts_duration_plan_fingerprint = current_plan_fingerprint
         plan_status = st.session_state.ts_duration_plan
         if planning_objective == "Find detectable effect by duration":
-            st.success("Calculation completed — minimum detectable effects estimated by duration.")
+            st.success("Recommendation ready. Detectable impacts are shown for each duration.")
         elif plan_status.get("calibration_status") == "poor":
-            st.warning("Calculation completed — target power achieved, but model calibration is poor." if plan_status.get("recommended_duration") else "Calculation completed with model calibration warnings.")
+            st.warning("Recommendation ready, but historical validation needs review.")
         elif plan_status.get("recommended_duration") and plan_status.get("calibration_status") == "caution":
-            st.info("Calculation completed — target power achieved with calibration caution.")
+            st.info("Recommendation ready with limited historical validation.")
         elif plan_status.get("recommended_duration"):
-            st.success("Calculation completed — target power achieved.")
+            st.success("Recommendation ready.")
         else:
-            st.info("Calculation completed — target power not achieved within the selected maximum duration.")
+            st.info("The selected improvement is not detectable within the longest campaign duration.")
     plan = st.session_state.ts_duration_plan if st.session_state.ts_duration_plan_fingerprint == current_plan_fingerprint else None
     if not plan:
         return
@@ -3365,35 +3705,40 @@ def ts_planning_step() -> None:
     recommendation = plan.get("recommended_duration")
     validation_mode = plan.get("validation_mode", "Review")
     confidence = plan.get("recommendation_confidence", "Review")
-    st.markdown("**Validation Evidence**")
-    st.write(f"{validation_mode} · Recommendation confidence: {confidence}")
-    st.caption(f"{plan.get('historical_origins', 0):,} historical pseudo-launch origins · Minimum training history: {plan.get('minimum_training_observations', 0):,} observations · Predictors: {len(plan.get('predictors', [])):,} · Planner seasonality: {plan.get('model_seasonality', 'None')}")
-    if validation_mode == "Assumption-based":
-        st.warning(plan.get("assumption_note", "History is too short for empirical pseudo-launch validation. Treat this estimate as preliminary."))
-    elif validation_mode != "Robust empirical":
-        st.info("Historical validation is limited. Forecast paths supplement the available pseudo-launch origins, so treat the result as directional rather than fully empirical.")
-    st.markdown("**Campaign Duration Recommendation**" if effect is not None else "**Minimum Detectable Effect by Duration**")
     if recommendation:
         selected = next(row for row in plan["power"] if row["duration"] == recommendation)
         stable = max(1, recommendation - int(ramp))
         launch_anchor = pd.Timestamp(cfg.planned_launch_date or cfg.intervention_date)
         end = campaign_decision_date(launch_anchor, recommendation, cfg.frequency)
-        st.success(duration_label(recommendation, cfg.frequency))
-        st.write(f"Minimum duration to detect an assumed {plan['effect']}{'%' if plan['effect_type'] == 'Relative Lift (%)' else ' outcome-unit'} effect with {selected['power']:.0%} estimated power. The assumed effect is a business planning threshold, not a forecast.")
-        st.caption(f"Ramp-up: {duration_label(ramp, cfg.frequency)} · Stable measurement window: {duration_label(stable, cfg.frequency)} · Earliest reliable decision date: {end.strftime('%b %-d, %Y')}")
-        m1, m2 = st.columns(2)
-        m1.metric("Required Campaign Duration", duration_label(recommendation, cfg.frequency))
-        m2.metric("Required Time-Series Sample", f"{recommendation:,} time points", help="This is the required number of post-launch time observations, not the number of customers or transactions.")
-        m2.caption(f"Post-launch {cfg.frequency.lower()} aggregates")
-        m3, m4 = st.columns(2)
-        m3.metric("Historical Observations Used", f"{len(planning_data):,}")
-        m4.metric("Earliest Reliable Decision", end.strftime("%b %-d, %Y"))
+        render_ts_kpi_panel(
+            "Recommended Campaign Plan",
+            f"Shortest evaluated option expected to detect the {plan['effect']}{'%' if plan['effect_type'] == 'Relative Lift (%)' else '-unit'} planning threshold.",
+            f"{confidence} confidence",
+            [
+                ("Required Duration", duration_label(recommendation, cfg.frequency), ""),
+                ("Post-Launch Sample", f"{recommendation:,} time points", ""),
+                ("Estimated Detection Chance", f"{selected['power']:.0%}", "positive"),
+                ("Earliest Reliable Decision", end.strftime("%b %-d, %Y"), ""),
+            ],
+        )
+        st.caption(f"Ramp-up: {duration_label(ramp, cfg.frequency)} · Stable measurement: {duration_label(stable, cfg.frequency)} · Historical observations used: {len(planning_data):,}")
         operational_exposure = projected_operational_exposure(planning_data, cfg.exposure_column, recommendation)
         if operational_exposure is not None:
             st.metric("Expected Operational Exposure", f"{operational_exposure:,.0f}", help="Operational projection: median historical exposure per period multiplied by the recommended duration. This is not a statistical customer sample size.")
+        st.markdown('<div class="ts-panel-title">Historical Series and Planned Campaign Window</div>', unsafe_allow_html=True)
         st.plotly_chart(time_series_line(data, "", humanize_column_name(cfg.outcome_column), planned_launch_date=cfg.planned_launch_date, recommended_end_date=end.isoformat()), use_container_width=True)
     elif effect is not None:
-        st.warning("Target power is not reached within the selected maximum duration.")
+        render_ts_kpi_panel(
+            "More Time or a Larger Effect Is Needed",
+            "The selected effect does not reach the detection target within the longest campaign duration.",
+            "Review design",
+            [
+                ("Longest Duration Checked", duration_label(int(maximum), cfg.frequency), ""),
+                ("Effect Scenario", f"{effect:.1f}%" if effect_type == "Relative Lift (%)" else f"{effect:,.1f}", ""),
+                ("Target Detection Chance", f"{target_power:.0%}", ""),
+                ("Historical Observations", f"{len(planning_data):,}", ""),
+            ],
+        )
     else:
         reference_row = next((row for row in plan["power"] if row["duration"] == 12 and pd.notna(row.get("minimum_detectable_effect"))), None)
         if reference_row is None:
@@ -3401,12 +3746,28 @@ def ts_planning_step() -> None:
         if reference_row:
             mde = reference_row["minimum_detectable_effect"]
             display_mde = f"{mde * 100:.1f}%" if effect_type == "Relative Lift (%)" else f"{mde:,.1f}"
-            st.metric(f"Minimum Detectable Effect at {duration_label(reference_row['duration'], cfg.frequency)}", display_mde)
-            st.caption(f"Smallest modeled effect expected to reach {target_power:.0%} power at that duration. This is detectability, not a forecast of actual campaign performance.")
+            render_ts_kpi_panel(
+                "Detectable Effect Reference",
+                "The smallest modeled effect expected to meet the target at the reference duration. This is not a forecast.",
+                "Sensitivity estimate",
+                [
+                    ("Reference Duration", duration_label(reference_row["duration"], cfg.frequency), ""),
+                    ("Minimum Detectable Effect", display_mde, ""),
+                    ("Target Detection Chance", f"{target_power:.0%}", "positive"),
+                    ("Historical Observations", f"{len(planning_data):,}", ""),
+                ],
+            )
+    with st.expander("Validation evidence", expanded=False):
+        st.write(f"{validation_mode} · Recommendation confidence: {confidence}")
+        st.caption(f"{plan.get('historical_origins', 0):,} historical pseudo-launch origins · Minimum training history: {plan.get('minimum_training_observations', 0):,} observations · Predictors: {len(plan.get('predictors', [])):,} · Planner seasonality: {plan.get('model_seasonality', 'None')}")
+        if validation_mode == "Assumption-based":
+            st.warning(plan.get("assumption_note", "History is too short for empirical pseudo-launch validation. Treat this estimate as preliminary."))
+        elif validation_mode != "Robust empirical":
+            st.info("Historical validation is limited. Forecast paths supplement the available pseudo-launch origins, so treat this result as directional rather than fully empirical.")
     evaluated_rows = sorted(plan["power"], key=lambda row: int(row["duration"]))
     if effect is None:
-        st.markdown("**Detectable Effect by Duration**")
-        st.caption(f"Smallest modeled effect detectable at {target_power:.0%} power. The gain column shows whether the additional campaign time meaningfully improves sensitivity.")
+        st.markdown("**Smallest Detectable Impact by Duration**")
+        st.caption("Use this table to see whether a longer campaign produces a meaningfully more sensitive readout.")
         sensitivity_rows = []
         previous_mde = None
         previous_duration = None
@@ -3432,8 +3793,8 @@ def ts_planning_step() -> None:
             sensitivity_rows.append(
                 {
                     "Campaign Duration": duration_label(duration, cfg.frequency),
-                    "Minimum Detectable Lift" if effect_type == "Relative Lift (%)" else "Minimum Detectable Effect": display_mde,
-                    "Sensitivity Gain vs Shorter Option": gain,
+                    "Smallest Detectable Lift" if effect_type == "Relative Lift (%)" else "Smallest Detectable Impact": display_mde,
+                    "Benefit vs Shorter Option": gain,
                 }
             )
             if pd.notna(mde):
@@ -3442,8 +3803,8 @@ def ts_planning_step() -> None:
         sensitivity = pd.DataFrame(sensitivity_rows)
         st.dataframe(sensitivity, hide_index=True, use_container_width=True)
     else:
-        st.markdown("**Power by Campaign Duration**")
-        st.caption(f"Chance of detecting the assumed {effect:.1f}{'%' if effect_type == 'Relative Lift (%)' else '-unit'} effect when it is truly present. The shortest valid option reaching {target_power:.0%} is recommended.")
+        st.markdown("**Detection Chance by Campaign Duration**")
+        st.caption(f"Chance of detecting the assumed {effect:.1f}{'%' if effect_type == 'Relative Lift (%)' else '-unit'} improvement when it is real. The shortest reliable option is recommended.")
         finite_power_rows = [row for row in evaluated_rows if pd.notna(row.get("power"))]
         if finite_power_rows:
             peak_row = max(finite_power_rows, key=lambda row: row["power"])
@@ -3473,7 +3834,7 @@ def ts_planning_step() -> None:
                 {
                     "Campaign Duration": duration_label(duration, cfg.frequency),
                     "Detection Chance": f"{power:.0%}" if pd.notna(power) else "Not evaluated",
-                    "Minimum Detectable Lift" if effect_type == "Relative Lift (%)" else "Minimum Detectable Effect": f"{mde * 100:.1f}%" if effect_type == "Relative Lift (%)" and pd.notna(mde) else f"{mde:,.1f}" if pd.notna(mde) else "Not evaluated",
+                    "Smallest Detectable Lift" if effect_type == "Relative Lift (%)" else "Smallest Detectable Impact": f"{mde * 100:.1f}%" if effect_type == "Relative Lift (%)" and pd.notna(mde) else f"{mde:,.1f}" if pd.notna(mde) else "Not evaluated",
                     "Guidance": guidance,
                 }
             )
@@ -3494,15 +3855,14 @@ def ts_planning_step() -> None:
             with st.expander("Simulation precision details", expanded=False):
                 st.write("This interval describes uncertainty from estimating detection probability with a finite number of simulated paths. It is not the uncertainty interval for the campaign's effect.")
                 st.dataframe(pd.DataFrame(interval_rows), hide_index=True, use_container_width=True)
-    st.markdown("**Model Calibration**")
-    if plan["calibration_status"] == "assumption_based":
-        st.info(f"Calibration is assumption-based. The calculation uses a nominal {alpha:.0%} false-positive rate because history is too short for held-out placebo validation.")
-    elif plan["calibration_status"] == "acceptable":
-        st.success(f"✓ Calibration acceptable · False-positive behavior is consistent with the selected {alpha:.0%} target.")
-    else:
-        st.warning(f"⚠ Calibration needs review. False-positive behavior is not consistently aligned with the selected {alpha:.0%} target, so treat duration and MDE estimates cautiously.")
-    if plan["calibration_status"] != "assumption_based":
-        with st.expander("Calibration details", expanded=False):
+    with st.expander("Model validation (advanced)", expanded=False):
+        if plan["calibration_status"] == "assumption_based":
+            st.info(f"Validation is assumption-based because the available history is too short for held-out placebo checks. The calculation uses a nominal {alpha:.0%} false-positive rate.")
+        elif plan["calibration_status"] == "acceptable":
+            st.success(f"Historical validation is consistent with the selected {alpha:.0%} false-positive tolerance.")
+        else:
+            st.warning("Historical false-alarm behavior needs review, so treat the duration and detectable-impact estimates cautiously.")
+        if plan["calibration_status"] != "assumption_based":
             st.write("Model FPR is the false-alarm rate across simulated no-campaign forecast paths. Historical false alarms come from held-out pseudo-launches. Because historical counts are often small, calibration uses a one-sided exact binomial test against the selected false-positive target instead of comparing raw percentages directly.")
             calibration_rows = []
             for row in evaluated_rows:
@@ -3523,12 +3883,11 @@ def ts_planning_step() -> None:
                 )
             st.dataframe(pd.DataFrame(calibration_rows), hide_index=True, use_container_width=True)
             st.caption(f"Target false-positive rate: {alpha:.0%}. A historical p-value below 0.05 indicates evidence of excess false alarms; a large raw percentage alone is not treated as failure when only a few origins are available.")
-    with st.expander("Methodology", expanded=False):
+    with st.expander("How this recommendation was calculated (advanced)", expanded=False):
         st.write(f"One observation is one {cfg.frequency.lower()} aggregate. The planner uses {validation_mode.lower()} validation. Pseudo-launches use a consistent model specification and at least {plan.get('minimum_training_observations', 0)} pre-launch observations. Calibration origins determine a one-sided critical threshold for a planned positive effect; separate held-out origins estimate false-positive rate and power. Sparse historical false alarms are evaluated with an exact binomial test. Correlated no-campaign forecast paths are reused to evaluate assumed effects and to solve for the minimum detectable effect at each duration. When history is too short for structural validation, the planner switches to a labeled analytical approximation using detrended residual variance and autocorrelation. A supplied effect is a scenario, not a forecast. When simulation intervals are available, the lower bound must clear the target before a duration is recommended. Every candidate through the selected maximum duration is evaluated. Required Time-Series Sample means post-launch time points, not customers or transactions.")
 
 
 def ts_decision_step() -> None:
-    st.subheader("Decision")
     cfg: TimeSeriesConfig = st.session_state.ts_config
     current_fingerprint = f"{method_config_fingerprint(cfg, cfg.analysis_method)}:{data_fingerprint(st.session_state.ts_prepared_df)}"
     if cfg.analysis_method == "Structural Time Series Counterfactual" and st.session_state.ts_structural_fingerprint and st.session_state.ts_structural_fingerprint != current_fingerprint:
@@ -3541,29 +3900,43 @@ def ts_decision_step() -> None:
     if not result:
         st.info("Run an analysis before generating the decision summary.")
         return
-    st.markdown("**Analysis Conclusion**")
-    st.write(f"Outcome: {humanize_column_name(cfg.outcome_column)}")
-    st.write(f"Evaluation Period: {cfg.intervention_date} – {cfg.campaign_end_date or st.session_state.ts_prepared_df['_date'].max().date()}")
     if cfg.analysis_method == "Structural Time Series Counterfactual":
         low, high = result["prediction_interval"]
         interp = build_business_interpretation(result["cumulative_impact"], result["relative_impact"], result["prediction_interval"], result["simulation_probability_positive"], result.get("reliability", "Poor"), cfg.outcome_column)
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Estimated Lift", percent(result["relative_impact"], 1))
-        c2.metric(incremental_outcome_label(cfg.outcome_column), number(result["cumulative_impact"], 0))
-        c3.metric("Likely Impact Range", f"{low:+,.0f} to {high:+,.0f}")
-        c4.metric("Probability Impact Is Positive", probability_positive_label(result["simulation_probability_positive"]))
-        st.write(f"Model Reliability: {result.get('reliability', 'Review')}")
-        st.markdown("**Interpretation**")
-        st.write(interp["interpretation"])
-        st.markdown("**Analytical Conclusion**")
         conclusion = "Positive evidence — high confidence" if result.get("decision") == "positive" and result.get("reliability") == "Good" else "Positive evidence — moderate confidence" if result.get("decision") == "positive" else "Negative evidence — high confidence" if result.get("decision") == "negative" and result.get("reliability") == "Good" else "Negative evidence — moderate confidence" if result.get("decision") == "negative" else "Inconclusive"
-        st.write(conclusion)
-        st.markdown("**Analytical Next Step**")
+        positive = result["cumulative_impact"] >= 0
+        render_ts_kpi_panel(
+            "Campaign Decision",
+            interp["interpretation"],
+            conclusion,
+            [
+                ("Estimated Lift", percent(result["relative_impact"], 1), "positive" if positive else "negative"),
+                (incremental_outcome_label(cfg.outcome_column), number(result["cumulative_impact"], 0), "positive" if positive else "negative"),
+                ("Likely Impact Range", f"{low:+,.0f} to {high:+,.0f}", ""),
+                ("Model Reliability", result.get("reliability", "Review"), ""),
+            ],
+            analysis=True,
+        )
+        st.markdown("**Recommended Next Step**")
         st.write(interp["next_step"])
     else:
-        st.write("Method: Pre–Post Analysis")
-        st.write(f"Observed Change: {number(result['absolute_change'], 2)} ({percent(result['percent_change'], 1)})")
+        positive = result["absolute_change"] >= 0
+        render_ts_kpi_panel(
+            "Before-and-After Summary",
+            "A descriptive comparison only; use a counterfactual method when a causal estimate is required.",
+            "Descriptive evidence",
+            [
+                ("Before Campaign", number(result["pre_value"], 2), ""),
+                ("After Campaign", number(result["post_value"], 2), ""),
+                ("Absolute Change", number(result["absolute_change"], 2), "positive" if positive else "negative"),
+                ("Percent Change", percent(result["percent_change"], 1), "positive" if positive else "negative"),
+            ],
+            analysis=True,
+        )
         st.warning("Pre–Post results are descriptive and should not be interpreted as causal impact.")
+    with st.expander("What this recommendation covers", expanded=False):
+        st.write(f"Outcome: {humanize_column_name(cfg.outcome_column)}")
+        st.write(f"Evaluation Period: {cfg.intervention_date} – {cfg.campaign_end_date or st.session_state.ts_prepared_df['_date'].max().date()}")
 
 
 def geo_map_frame(data: pd.DataFrame, assignment: pd.DataFrame | None = None) -> pd.DataFrame:
@@ -3580,8 +3953,10 @@ def geo_map_frame(data: pd.DataFrame, assignment: pd.DataFrame | None = None) ->
 
 
 def geo_data_step() -> None:
-    st.subheader("Connect Market Data")
-    st.markdown('<div class="geo-section-copy">Use one row per market and time period. The platform will read your existing Test and Control labels; it will never rematch markets.</div>', unsafe_allow_html=True)
+    render_business_guide(
+        "Use one row per market and time period. Your existing Test and Control markets will never be rematched.",
+        "Output: usable market history",
+    )
     cfg: GeoConfig = st.session_state.geo_config
     cfg.data_source = st.radio("Data Source", ["Upload File", "Internal Data", "Synthetic Demo"], index=["Upload File", "Internal Data", "Synthetic Demo"].index(cfg.data_source), horizontal=True, key="geo_source")
     if cfg.data_source == "Upload File":
@@ -3637,10 +4012,10 @@ def geo_data_step() -> None:
 
     st.markdown("**Tell us what each column means**")
     c1, c2, c3, c4 = st.columns(4)
-    cfg.date_column = c1.selectbox("Date Column", columns, index=columns.index(cfg.date_column))
-    cfg.dma_column = c2.selectbox("DMA Column", columns, index=columns.index(cfg.dma_column))
-    cfg.outcome_column = c3.selectbox("Primary Outcome", numeric, index=numeric.index(cfg.outcome_column) if cfg.outcome_column in numeric else 0)
-    cfg.group_column = c4.selectbox("Test / Control Group", ["None"] + columns, index=(["None"] + columns).index(cfg.group_column))
+    cfg.date_column = c1.selectbox("Date", columns, index=columns.index(cfg.date_column))
+    cfg.dma_column = c2.selectbox("Market / DMA", columns, index=columns.index(cfg.dma_column))
+    cfg.outcome_column = c3.selectbox("Business Outcome", numeric, index=numeric.index(cfg.outcome_column) if cfg.outcome_column in numeric else 0)
+    cfg.group_column = c4.selectbox("Test Group", ["None"] + columns, index=(["None"] + columns).index(cfg.group_column))
     with st.expander("Advanced data fields", expanded=False):
         c5, c6, c7 = st.columns(3)
         cfg.market_size_column = c5.selectbox("Market-size Weight", ["None"] + columns, index=(["None"] + columns).index(cfg.market_size_column), help="Optional. Use a positive market-size field only when large DMAs should contribute more to the result.")
@@ -3679,8 +4054,10 @@ def geo_data_step() -> None:
 
 def geo_assignment_step(show_heading: bool = True, balance_date: str | None = None) -> bool:
     if show_heading:
-        st.subheader("Confirm Test and Control Markets")
-        st.markdown('<div class="geo-section-copy">The groups come directly from your data. Confirm the two labels, then review the market coverage before continuing.</div>', unsafe_allow_html=True)
+        render_business_guide(
+            "Confirm which labels mean Test and Control, then review the markets included in each group.",
+            "Output: confirmed market groups",
+        )
     cfg: GeoConfig = st.session_state.geo_config
     panel = st.session_state.geo_panel_df
     if panel.empty:
@@ -3743,8 +4120,10 @@ def geo_assignment_step(show_heading: bool = True, balance_date: str | None = No
 
 
 def geo_planning_step() -> None:
-    st.subheader("Build the Test Plan")
-    st.markdown('<div class="geo-section-copy">Choose the smallest business effect worth detecting. The platform turns your historical market variation into a recommended duration and DMA requirement.</div>', unsafe_allow_html=True)
+    render_business_guide(
+        "Choose the smallest change worth acting on. Historical market variation determines the duration and number of markets needed.",
+        "Output: duration and market requirement",
+    )
     cfg: GeoConfig = st.session_state.geo_config
     panel = st.session_state.geo_panel_df
     assignment = st.session_state.geo_assignment
@@ -3756,9 +4135,9 @@ def geo_planning_step() -> None:
     c1, c2, c3, c4 = st.columns(4)
     cfg.planned_launch_date = c1.date_input("Planned Launch Date", value=pd.Timestamp(cfg.planned_launch_date).date(), min_value=panel["_date"].min().date()).isoformat()
     cfg.effect_type = c2.selectbox("Effect Scale", ["Relative lift", "Absolute change"], index=["Relative lift", "Absolute change"].index(cfg.effect_type), help="Use relative lift for a percentage change, or absolute change when the metric has a natural unit.")
-    effect_label = "Effect to Detect (%)" if cfg.effect_type == "Relative lift" else f"Effect to Detect ({cfg.outcome_column})"
+    effect_label = "Smallest Lift Worth Acting On (%)" if cfg.effect_type == "Relative lift" else f"Smallest Change Worth Acting On ({cfg.outcome_column})"
     cfg.expected_effect = c3.number_input(effect_label, min_value=0.01, value=float(cfg.expected_effect), step=0.5 if cfg.effect_type == "Relative lift" else 1.0)
-    cfg.max_duration = c4.number_input(f"Longest Duration ({duration_unit(frequency)}s)", min_value=2, max_value=104, value=int(cfg.max_duration), step=1)
+    cfg.max_duration = c4.number_input(f"Longest Campaign You Can Run ({duration_unit(frequency)}s)", min_value=2, max_value=104, value=int(cfg.max_duration), step=1)
     with st.expander("Advanced settings", expanded=False):
         c5, c6, c7 = st.columns(3)
         cfg.target_power = c5.slider("Target Detection Chance", min_value=0.60, max_value=0.95, value=float(cfg.target_power), step=0.05)
@@ -3829,7 +4208,7 @@ def geo_planning_step() -> None:
         st.dataframe(display, use_container_width=True, hide_index=True)
         if recommended is None:
             st.warning("Add markets, accept a larger detectable effect, or extend the longest campaign duration.")
-        with st.expander("Planning methodology", expanded=False):
+        with st.expander("How this plan was calculated (advanced)", expanded=False):
             st.write(plan["method_note"])
             st.write("Historical Test-minus-Control variation is detrended, adjusted for lag-1 autocorrelation, and converted into the uncertainty of an average campaign effect. Detection chance uses a two-sided normal test. Required DMAs scale with squared uncertainty relative to the supplied effect scenario; duration and DMA count are separate design levers.")
             st.write(f"Historical periods used: {plan['historical_periods']} | Estimated lag-1 autocorrelation: {number(plan['lag1_autocorrelation'], 2)}")
@@ -3845,8 +4224,10 @@ def geo_analysis_signature() -> tuple:
 
 
 def geo_analysis_setup_step() -> None:
-    st.subheader("Set Up the Analysis")
-    st.markdown('<div class="geo-section-copy">Confirm when the campaign started and which markets were Test versus Control. That is all the model needs for the main result.</div>', unsafe_allow_html=True)
+    render_business_guide(
+        "Confirm when the campaign started and which markets were Test versus Control.",
+        "Output: campaign measurement window",
+    )
     cfg: GeoConfig = st.session_state.geo_config
     panel = st.session_state.geo_panel_df
     if panel.empty:
@@ -3854,10 +4235,10 @@ def geo_analysis_setup_step() -> None:
         return
     min_date, max_date = panel["_date"].min().date(), panel["_date"].max().date()
     c1, c2 = st.columns(2)
-    cfg.campaign_start_date = c1.date_input("Campaign Start", value=pd.Timestamp(cfg.campaign_start_date).date(), min_value=min_date, max_value=max_date).isoformat()
-    end_enabled = c2.checkbox("Use a custom analysis end date", value=bool(cfg.campaign_end_date), key="geo_actual_end_enabled")
+    cfg.campaign_start_date = c1.date_input("When did the campaign start?", value=pd.Timestamp(cfg.campaign_start_date).date(), min_value=min_date, max_value=max_date).isoformat()
+    end_enabled = c2.checkbox("The campaign had a fixed end date", value=bool(cfg.campaign_end_date), key="geo_actual_end_enabled")
     cfg.campaign_end_date = c2.date_input("Analysis End", value=pd.Timestamp(cfg.campaign_end_date or max_date).date(), min_value=pd.Timestamp(cfg.campaign_start_date).date(), max_value=max_date).isoformat() if end_enabled else ""
-    st.markdown("**Confirm Groups**")
+    st.markdown("**Test and Control Markets**")
     valid = geo_assignment_step(show_heading=False, balance_date=cfg.campaign_start_date)
     if not valid:
         return
@@ -3872,8 +4253,10 @@ def geo_analysis_setup_step() -> None:
 
 
 def geo_analysis_results_step() -> None:
-    st.subheader("Results")
-    st.markdown('<div class="geo-section-copy">See the estimated incremental impact first. Statistical diagnostics remain available below when you need them.</div>', unsafe_allow_html=True)
+    render_business_guide(
+        "Review the estimated incremental impact first. Detailed statistical checks remain available below.",
+        "Output: campaign impact",
+    )
     cfg: GeoConfig = st.session_state.geo_config
     panel = st.session_state.geo_panel_df
     assignment = st.session_state.geo_assignment
@@ -3890,7 +4273,7 @@ def geo_analysis_results_step() -> None:
         st.session_state.geo_balance = evaluate_geo_balance(panel, assignment, cfg.campaign_start_date)
         trend = aggregate_trend(analysis_panel, cfg.outcome_view)
         current = bool(st.session_state.geo_analysis and st.session_state.geo_analysis.get("_signature") == signature)
-        action_label = "Recalculate Analysis" if current else "Run Analysis"
+        action_label = "Recalculate Impact" if current else "Calculate Impact"
         if st.button(action_label, type="primary", key="geo_run_analysis"):
             result = run_panel_did(analysis_panel, weighted=weighted)
             result["_signature"] = signature
@@ -4052,18 +4435,13 @@ def geographic_page() -> None:
         st.markdown('<div class="geo-entry-note">Your supplied Test and Control markets stay fixed. The platform does not rematch or reassign DMAs.</div>', unsafe_allow_html=True)
         return
 
-    nav_left, nav_right = st.columns([4, 1])
-    nav_left.caption(f"Geographic Experiment / {'Plan' if intent == 'plan' else 'Analyze Results'}")
+    _, nav_right = st.columns([5, 1])
     if nav_right.button("Switch workflow", key="geo_switch_workflow"):
         st.session_state.geo_intent = None
         st.rerun()
 
     if intent == "plan":
-        st.markdown(
-            '<div class="geo-path plan"><div class="geo-path-step"><div class="geo-path-number">1</div><b>Data</b><span>Choose market history</span></div><div class="geo-path-step"><div class="geo-path-number">2</div><b>Groups</b><span>Confirm fixed DMAs</span></div><div class="geo-path-step"><div class="geo-path-number">3</div><b>Plan</b><span>Get time and sample</span></div></div>',
-            unsafe_allow_html=True,
-        )
-        tab_data, tab_groups, tab_plan = st.tabs(["Data", "Groups", "Plan"])
+        tab_data, tab_groups, tab_plan = st.tabs(["1 · Bring Data", "2 · Confirm Markets", "3 · Get Plan"])
         with tab_data:
             geo_data_step()
         with tab_groups:
@@ -4072,11 +4450,7 @@ def geographic_page() -> None:
             geo_planning_step()
         return
 
-    st.markdown(
-        '<div class="geo-path"><div class="geo-path-step"><div class="geo-path-number">1</div><b>Data</b><span>Upload completed test</span></div><div class="geo-path-step"><div class="geo-path-number">2</div><b>Setup</b><span>Confirm groups and dates</span></div><div class="geo-path-step"><div class="geo-path-number">3</div><b>Results</b><span>See impact and decision</span></div></div>',
-        unsafe_allow_html=True,
-    )
-    tab_data, tab_setup, tab_results = st.tabs(["Data", "Setup", "Results"])
+    tab_data, tab_setup, tab_results = st.tabs(["1 · Bring Data", "2 · Confirm Test", "3 · See Impact"])
     with tab_data:
         geo_data_step()
     with tab_setup:
@@ -4085,33 +4459,81 @@ def geographic_page() -> None:
         geo_analysis_results_step()
 
 
+def leave_time_series_workspace() -> None:
+    st.session_state.ts_intent = None
+    st.session_state.main_page = "Overview"
+
+
+def render_ts_shell(intent: str | None) -> None:
+    accent = "#16856b" if intent == "analyze" else "#d69a1f"
+    landing_secondary = "" if intent else '.stButton > button[kind="secondary"] {background:#16856b; border-color:#16856b; color:#fff;} .stButton > button[kind="secondary"] p {color:#fff;} .stButton > button[kind="secondary"]:hover {background:#11735f; border-color:#11735f; color:#fff;}'
+    st.markdown(
+        f"""
+        <style>
+        [data-testid="stSidebar"], [data-testid="collapsedControl"], header[data-testid="stHeader"] {{display:none !important;}}
+        .stApp {{background:#fbfcfe;}}
+        .block-container {{max-width:1480px; padding:1rem 2rem 3rem;}}
+        .stButton > button[kind="primary"] {{background:{accent}; border-color:{accent}; color:#fff;}}
+        .stButton > button[kind="primary"]:hover {{background:{accent}; border-color:{accent}; filter:brightness(.96);}}
+        button[data-baseweb="tab"][aria-selected="true"] {{color:{accent};}}
+        {landing_secondary}
+        @media (max-width:800px) {{.block-container {{padding:.75rem 1rem 2rem;}}}}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    brand, exit_col = st.columns([5, 1])
+    brand.markdown(
+        '<div class="ts-product-bar"><div class="ts-product-mark">TIME</div><div><div class="ts-product-name">Experiment Platform</div><div class="ts-product-context">Time-series experimentation workspace</div></div></div>',
+        unsafe_allow_html=True,
+    )
+    exit_col.button("All experiments", use_container_width=True, key="ts_all_experiments", on_click=leave_time_series_workspace)
+
+
+def render_ts_kpi_panel(title: str, subtitle: str, status: str, values: list[tuple[str, str, str]], analysis: bool = False) -> None:
+    cells = "".join(
+        f'<div class="ts-kpi"><div class="ts-kpi-label">{html.escape(label)}</div><div class="ts-kpi-value {html.escape(tone)}">{html.escape(value)}</div></div>'
+        for label, value, tone in values
+    )
+    st.markdown(
+        f'<section class="ts-kpi-panel{" analysis" if analysis else ""}"><div class="ts-kpi-head"><div><strong>{html.escape(title)}</strong><span>{html.escape(subtitle)}</span></div><div class="ts-status">{html.escape(status)}</div></div><div class="ts-kpis">{cells}</div></section>',
+        unsafe_allow_html=True,
+    )
+
+
 def time_series_page() -> None:
-    st.title("Time Series Analysis")
-    st.caption("Evaluate an intervention without a randomized control group.")
     intent = st.session_state.get("ts_intent")
+    render_ts_shell(intent)
+    st.markdown(
+        '<div class="ts-page-heading"><h1>Time Series Experiment</h1><p>Plan or measure a campaign when no randomized control group is available.</p></div>',
+        unsafe_allow_html=True,
+    )
     if not intent:
-        st.subheader("What would you like to do?")
         left, right = st.columns(2)
         with left:
-            st.markdown("**Plan a Campaign**")
-            st.write("Determine how long a campaign needs to run and whether the expected impact will be statistically detectable.")
-            if st.button("Start Planning", type="primary", key="ts_start_planning"):
+            st.markdown(
+                '<div class="ts-choice"><div class="ts-choice-icon">01</div><h3>Plan a Campaign</h3><p>Use historical behavior to estimate the shortest campaign duration and the effect you can reliably detect.</p><div class="ts-choice-result">Recommended duration · Detectable effect · Earliest decision</div></div>',
+                unsafe_allow_html=True,
+            )
+            if st.button("Start Planning", type="primary", use_container_width=True, key="ts_start_planning"):
                 st.session_state.ts_intent = "plan"
                 st.rerun()
         with right:
-            st.markdown("**Analyze Campaign Results**")
-            st.write("Estimate campaign impact using observed pre- and post-campaign data.")
-            if st.button("Start Analysis", key="ts_start_analysis"):
+            st.markdown(
+                '<div class="ts-choice analysis"><div class="ts-choice-icon">02</div><h3>Analyze Campaign Results</h3><p>Compare observed outcomes with a pre–post benchmark or an estimated no-campaign trajectory.</p><div class="ts-choice-result">Estimated impact · Uncertainty · Model reliability</div></div>',
+                unsafe_allow_html=True,
+            )
+            if st.button("Start Analysis", use_container_width=True, key="ts_start_analysis"):
                 st.session_state.ts_intent = "analyze"
                 st.rerun()
+        st.markdown('<div class="ts-entry-note">Use this workflow when the intervention begins on a known date and a randomized control group is not available.</div>', unsafe_allow_html=True)
         return
-    nav_left, nav_right = st.columns([3, 1])
-    nav_left.caption(f"Time Series / {'Plan Campaign' if intent == 'plan' else 'Analyze Results'}")
+    _, nav_right = st.columns([5, 1])
     if nav_right.button("Switch workflow", key="ts_switch_workflow"):
         st.session_state.ts_intent = None
         st.rerun()
     if intent == "plan":
-        tabs = st.tabs(["Data", "Campaign Setup", "Detectability & Duration"])
+        tabs = st.tabs(["1 · Bring Data", "2 · Set Launch", "3 · Get Recommendation"])
         with tabs[0]:
             ts_data_step()
         with tabs[1]:
@@ -4119,7 +4541,7 @@ def time_series_page() -> None:
         with tabs[2]:
             ts_planning_step()
         return
-    tabs = st.tabs(["Data", "Setup", "Analysis", "Results", "Decision"])
+    tabs = st.tabs(["1 · Bring Data", "2 · Mark Campaign", "3 · Choose Method", "4 · See Impact", "5 · Recommendation"])
     with tabs[0]:
         ts_data_step()
     with tabs[1]:
@@ -4200,17 +4622,12 @@ def customer_page() -> None:
                 st.rerun()
         st.markdown('<div class="customer-entry-note">Designed for randomized customer or account assignments. Statistical controls remain available when your design needs them.</div>', unsafe_allow_html=True)
         return
-    nav_left, nav_right = st.columns([4, 1])
-    nav_left.caption(f"Customer Experiment / {'Plan' if intent == 'plan' else 'Analyze Results'}")
+    _, nav_right = st.columns([5, 1])
     if nav_right.button("Switch workflow", key="customer_switch_workflow"):
         st.session_state.customer_intent = None
         st.rerun()
     if intent == "plan":
-        st.markdown(
-            '<div class="customer-path"><div class="customer-path-step"><div class="customer-path-number">1</div><b>Data</b><span>Load customer history</span></div><div class="customer-path-step"><div class="customer-path-number">2</div><b>Groups</b><span>Define audiences</span></div><div class="customer-path-step"><div class="customer-path-number">3</div><b>Metrics</b><span>Choose outcomes</span></div><div class="customer-path-step"><div class="customer-path-number">4</div><b>Strategy</b><span>Configure test arms</span></div><div class="customer-path-step"><div class="customer-path-number">5</div><b>Plan</b><span>Size and schedule</span></div></div>',
-            unsafe_allow_html=True,
-        )
-        tab_data, tab_groups, tab_metrics, tab_strategy, tab_plan = st.tabs(["Data", "Groups", "Metrics", "Strategy", "Plan"])
+        tab_data, tab_groups, tab_metrics, tab_strategy, tab_plan = st.tabs(["1 · Bring Data", "2 · Choose Audience", "3 · Pick Outcome", "4 · Define Options", "5 · Get Plan"])
         with tab_data:
             customer_data_step()
         with tab_groups:
@@ -4222,11 +4639,7 @@ def customer_page() -> None:
         with tab_plan:
             customer_plan_step()
         return
-    st.markdown(
-        '<div class="customer-path analyze"><div class="customer-path-step"><div class="customer-path-number">1</div><b>Analyze</b><span>Map data and estimate impact</span></div><div class="customer-path-step"><div class="customer-path-number">2</div><b>Decision</b><span>Review evidence and action</span></div></div>',
-        unsafe_allow_html=True,
-    )
-    tab_analysis, tab_decision = st.tabs(["Analyze Results", "Decision"])
+    tab_analysis, tab_decision = st.tabs(["1 · Upload Results", "2 · Recommendation"])
     with tab_analysis:
         analysis_step()
     with tab_decision:

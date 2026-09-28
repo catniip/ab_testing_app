@@ -9,7 +9,15 @@ from src.experiment_platform.arm_selection import (
 )
 from src.experiment_platform.decision import arm_decision_scorecard, experiment_recommendation, guardrail_status, recommendation_status
 from src.experiment_platform.demo_data import experiment_results, historical_portfolio
-from src.experiment_platform.charts import historical_association
+from src.experiment_platform.charts import (
+    customer_category_bar,
+    customer_option_chart,
+    customer_required_accounts_chart,
+    customer_strategy_outcome_chart,
+    customer_traffic_allocation_chart,
+    historical_association,
+    response_plot,
+)
 from src.experiment_platform.metrics import column_schema, suggest_metric_type, validate_metric
 from src.experiment_platform.power import detectable_effect_binary, detectable_effect_continuous, power_binary, power_continuous, sample_size_binary, sample_size_continuous
 
@@ -82,6 +90,59 @@ def test_historical_association_reuses_binning_and_legends_selected_lines():
     )
     assert [trace.name for trace in fig.data] == ["Historical mean", "Assigned line · BAU: 3,000", "Assigned line · HIGH: 8,000"]
     assert len(fig.layout.shapes) == 0
+
+
+def test_customer_visuals_use_unique_accounts_and_business_colors():
+    history = pd.DataFrame(
+        {
+            "account_id": ["A", "A", "B", "C"],
+            "product": ["Card", "Card", "Loan", "Card"],
+        }
+    )
+    coverage = customer_category_bar(history, "product", "account_id", "Product")
+    assert sum(coverage.data[0].x) == 3
+
+    options = customer_option_chart(5000, [3000, 8000], "BAU", ["Low", "High"], "Credit Line", numeric=True)
+    assert [trace.marker.color for trace in options.data] == ["#2457a6", "#ef4d4d", "#d69a1f"]
+
+
+def test_customer_plan_visuals_show_required_accounts_and_full_traffic_split():
+    plan = pd.DataFrame(
+        [
+            {"Group": "Prime", "Test Option": "BAU", "Role": "Control", "Required Accounts": 100, "Traffic Allocation": 0.4},
+            {"Group": "Prime", "Test Option": "Offer A", "Role": "Treatment", "Required Accounts": 150, "Traffic Allocation": 0.6},
+        ]
+    )
+    accounts = customer_required_accounts_chart(plan)
+    allocation = customer_traffic_allocation_chart(plan)
+    assert list(accounts.data[0].x) == [100, 150]
+    assert sum(float(trace.x[0]) for trace in allocation.data) == 1.0
+
+
+def test_customer_strategy_outcome_chart_compares_named_strategies():
+    history = pd.DataFrame(
+        {
+            "strategy": ["Business as usual", "Business as usual", "Offer A", "Offer A"],
+            "outcome": [10.0, 14.0, 18.0, 22.0],
+        }
+    )
+    figure = customer_strategy_outcome_chart(history, "strategy", "outcome", "Test Strategy", "Revenue")
+    assert figure.data[0].type == "bar"
+    assert list(figure.data[0].x) == ["Business as usual", "Offer A"]
+    assert list(figure.data[0].y) == [12.0, 20.0]
+
+
+def test_categorical_response_plot_uses_bars():
+    response = pd.DataFrame(
+        {
+            "Credit Line": ["BAU", "Offer A"],
+            "Estimate": [10.0, 12.0],
+            "CI Lower": [9.0, 11.0],
+            "CI Upper": [11.0, 13.0],
+        }
+    )
+    fig = response_plot(response, "Test Option", "Outcome")
+    assert fig.data[0].type == "bar"
 
 
 def test_power_calculations_return_positive_sample_sizes():
