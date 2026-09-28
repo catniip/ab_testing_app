@@ -35,12 +35,16 @@ class PopulationConfig:
 
 @dataclass
 class StrategyConfig:
-    experiment_template: str = "Credit Line"
-    arm_format: str = "Ordered numeric levels"
-    strategy_type: str = "Numeric Strategy"
-    strategy_name: str = "Credit Line"
-    assignment_column: str = "assigned_credit_line"
-    historical_column: str = "current_credit_line"
+    experiment_template: str = "Custom"
+    arm_format: str = "Named variants"
+    strategy_type: str = "Categorical Strategy"
+    strategy_name: str = "Treatment"
+    strategy_goal: str = ""
+    value_label: str = "Strategy Value"
+    value_format: str = "Number"
+    assignment_column: str = "assigned_treatment"
+    historical_column: str = ""
+    historical_evidence: str = "Use group-level outcome history"
     historical_grouping: str = "Nearest proposed point"
     max_mapping_distance: float = 0.0
     selection_mode: str = "Suggested lines"
@@ -50,16 +54,17 @@ class StrategyConfig:
     curve_smoothing: bool = True
     planning_grouping: str = "Closest testing line"
     planning_bin_width: float = 2000.0
-    control_name: str = "BAU"
-    control_value: Any = 5000
-    min_value: float = 2000
-    max_value: float = 10000
-    increment: float = 500
-    number_of_arms: int = 3
-    treatment_values: list[Any] = field(default_factory=lambda: [3000, 8000])
-    treatment_names: list[str] = field(default_factory=lambda: ["LOW", "HIGH"])
-    categorical_control: str = "BAU"
-    categorical_treatments: list[str] = field(default_factory=lambda: ["Offer A", "Offer B"])
+    control_name: str = "Control"
+    control_value: Any = 0
+    min_value: float = 0
+    max_value: float = 100
+    increment: float = 1
+    number_of_arms: int = 2
+    treatment_values: list[Any] = field(default_factory=lambda: [1])
+    treatment_names: list[str] = field(default_factory=lambda: ["Treatment A"])
+    categorical_control: str = "Control"
+    categorical_treatments: list[str] = field(default_factory=lambda: ["Treatment A"])
+    arm_descriptions: dict[str, str] = field(default_factory=dict)
     group_arms: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 

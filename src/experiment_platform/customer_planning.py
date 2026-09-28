@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from itertools import combinations
 import math
+from copy import deepcopy
 
 import numpy as np
 import pandas as pd
 
 from .assumptions import design_neyman_allocation
+from .assumptions import design_sample_size
 from .historical_strategy import historical_arm_statistics
+from .metrics import metric_baseline
 from .models import DesignConfig, MetricConfig
 
 
@@ -104,7 +107,7 @@ def calculate_group_design(
         output.append(
             {
                 "Group": group_label,
-                "Line": float(row["Strategy Point"]),
+                "Arm": float(row["Strategy Point"]),
                 "Role": row["Role"],
                 "Required Accounts": enroll_n,
                 "Traffic Allocation": share,
@@ -114,6 +117,80 @@ def calculate_group_design(
                 "Historical Mean": float(row["Historical Mean"]),
                 "Historical SD": float(row["Historical SD"]),
                 "Support": str(row["Support"]),
+            }
+        )
+    return output, comparisons, binding
+
+
+def calculate_variant_group_design(
+    group_df: pd.DataFrame,
+    metrics: dict[str, MetricConfig],
+    design: DesignConfig,
+    control: object,
+    treatments: list[object],
+    eligible_flow: float,
+    group_label: str,
+) -> tuple[list[dict], list[dict], str]:
+    """Plan named or unsupported-history arms from group-level outcome assumptions."""
+    arms = [control, *treatments]
+    if len(arms) < 2:
+        raise ValueError("At least one control and one treatment arm are required.")
+    group_metrics: dict[str, MetricConfig] = {}
+    support_rows: list[dict] = []
+    for role, metric in metrics.items():
+        metric_column = metric.processed_column or metric.column
+        if metric_column not in group_df.columns:
+            raise ValueError(f"{metric.name}: historical outcome column is unavailable for this customer group.")
+        values = pd.to_numeric(group_df[metric_column], errors="coerce").dropna()
+        if len(values) < 2:
+            raise ValueError(f"{metric.name}: at least two historical outcomes are required for this customer group.")
+        copied = deepcopy(metric)
+        stats = metric_baseline(group_df, metric_column, metric.metric_type)
+        if metric.metric_type == "Binary":
+            copied.baseline_rate = float(stats["baseline"])
+            historical_sd = math.sqrt(max(copied.baseline_rate * (1 - copied.baseline_rate), 0))
+        else:
+            copied.baseline_mean = float(stats["baseline"])
+            copied.standard_deviation = float(stats["std_dev"])
+            copied.variance = copied.standard_deviation**2
+            historical_sd = copied.standard_deviation
+        group_metrics[role] = copied
+        support_rows.append(
+            {
+                "Metric": copied.name,
+                "Role": role,
+                "Historical N": int(len(values)),
+                "Historical Mean": float(stats["baseline"]),
+                "Historical SD": float(historical_sd),
+            }
+        )
+
+    n_per_arm, binding, comparisons = design_sample_size(
+        group_metrics,
+        design,
+        comparisons=max(len(treatments), 1),
+    )
+    enrollment_n = int(math.ceil(n_per_arm / max(1 - design.attrition_rate, 1e-9)))
+    total_enrollment = enrollment_n * len(arms)
+    share = 1 / len(arms)
+    flow = float(eligible_flow) * share
+    duration = enrollment_n / flow if flow > 0 else math.inf
+    primary_support = next(row for row in support_rows if row["Role"] == "Primary")
+    output = []
+    for index, arm in enumerate(arms):
+        output.append(
+            {
+                "Group": group_label,
+                "Arm": arm,
+                "Role": "Control" if index == 0 else "Treatment",
+                "Required Accounts": enrollment_n,
+                "Traffic Allocation": enrollment_n / max(total_enrollment, 1),
+                "Flow per Period": flow,
+                "Test Duration": duration,
+                "Historical N": primary_support["Historical N"],
+                "Historical Mean": primary_support["Historical Mean"],
+                "Historical SD": primary_support["Historical SD"],
+                "Support": "Group-level pooled history",
             }
         )
     return output, comparisons, binding
