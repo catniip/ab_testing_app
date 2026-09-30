@@ -501,6 +501,43 @@ def aggregate_trend(panel: pd.DataFrame, view: str = "Indexed") -> pd.DataFrame:
     return data
 
 
+def build_geo_preview(data: pd.DataFrame, assignment: pd.DataFrame, market_size_col: str = "None") -> dict:
+    """Build presentation-ready geography summaries without changing the analysis panel."""
+    quality = validate_geo_panel(data)
+    group_map, _ = _assignment_maps(assignment)
+    preview = data.copy()
+    preview["group"] = preview["_dma"].map(group_map)
+    assigned = preview[preview["group"].isin(["Test", "Control"])].copy()
+
+    if assigned.empty:
+        trend = pd.DataFrame(columns=["_date", "group", "_outcome", "_display_outcome"])
+    else:
+        trend = assigned.groupby(["_date", "group"], as_index=False)["_outcome"].mean()
+        trend["_display_outcome"] = trend["_outcome"]
+
+    summary_spec: dict[str, tuple[str, str]] = {
+        "Average Outcome": ("_outcome", "mean"),
+        "Periods": ("_date", "nunique"),
+        "Start Date": ("_date", "min"),
+        "Latest Date": ("_date", "max"),
+    }
+    if market_size_col != "None" and market_size_col in preview:
+        summary_spec["Market Size"] = (market_size_col, "median")
+    markets = preview.groupby("_dma", as_index=False).agg(**summary_spec).rename(columns={"_dma": "DMA"})
+    markets.insert(1, "Assignment", markets["DMA"].map(group_map).fillna("Not assigned"))
+    markets = markets.sort_values(["Assignment", "DMA"], kind="stable").reset_index(drop=True)
+
+    counts = assignment["Group"].value_counts().to_dict() if {"DMA", "Group"}.issubset(assignment.columns) else {}
+    return {
+        "quality": quality,
+        "trend": trend,
+        "markets": markets,
+        "counts": counts,
+        "start_date": data["_date"].min() if not data.empty else pd.NaT,
+        "end_date": data["_date"].max() if not data.empty else pd.NaT,
+    }
+
+
 def run_placebo_tests(panel: pd.DataFrame, count: int = 6, weighted: bool = False) -> dict:
     pre_dates = sorted(panel.loc[~panel["post"], "_date"].unique())
     if len(pre_dates) < 12:

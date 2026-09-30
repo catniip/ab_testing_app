@@ -98,6 +98,9 @@ def analysis_integrity_summary(
     }
     duplicate_units = int(scoped[unit_id_col].duplicated().sum()) if unit_id_col in scoped else 0
     srm_pvalue = np.nan
+    expected_counts: dict = {}
+    observed_shares: dict = {}
+    expected_share_map: dict = {}
     if len(arm_counts) == len(arms) and sum(arm_counts.values()) > 0:
         observed = np.array([arm_counts.get(arm, 0) for arm in arms], dtype=float)
         if expected_shares:
@@ -108,11 +111,17 @@ def analysis_integrity_summary(
         expected = observed.sum() * shares
         statistic = float(np.sum((observed - expected) ** 2 / np.maximum(expected, 1e-12)))
         srm_pvalue = float(stats.chi2.sf(statistic, len(arms) - 1))
+        expected_counts = {arm: float(value) for arm, value in zip(arms, expected)}
+        observed_shares = {arm: float(value / observed.sum()) for arm, value in zip(arms, observed)}
+        expected_share_map = {arm: float(value) for arm, value in zip(arms, shares)}
     return {
         "rows": len(scoped),
         "unique_units": int(scoped[unit_id_col].nunique()) if unit_id_col in scoped else 0,
         "duplicate_units": duplicate_units,
         "arm_counts": arm_counts,
+        "expected_counts": expected_counts,
+        "observed_shares": observed_shares,
+        "expected_shares": expected_share_map,
         "missing_by_metric": missing,
         "srm_pvalue": srm_pvalue,
         "srm_status": "Review" if pd.notna(srm_pvalue) and srm_pvalue < 0.01 else "Pass",

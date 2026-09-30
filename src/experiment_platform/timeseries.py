@@ -580,6 +580,40 @@ def duplicate_timestamp_count(data: pd.DataFrame) -> int:
     return int(data.duplicated("_date").sum())
 
 
+def build_timeseries_preview(
+    data: pd.DataFrame,
+    date_col: str,
+    outcome_col: str,
+    campaign_flag_col: str = "None",
+    duplicate_policy: str = "Fail validation",
+    missing_policy: str = "Keep",
+) -> dict:
+    """Build read-only dataset context for the Time Series opening screen."""
+    prepared = prepare_timeseries_data(data, date_col, outcome_col, duplicate_policy, missing_policy, "Auto")
+    frequency, missing = detect_frequency(prepared)
+    launch = None
+    if campaign_flag_col != "None" and campaign_flag_col in data:
+        source_dates = safe_datetime_series(data, date_col)
+        flags = safe_numeric_series(data, campaign_flag_col).fillna(0)
+        launched_dates = source_dates[flags > 0].dropna()
+        launch = launched_dates.min() if not launched_dates.empty else None
+    pre_count = int((prepared["_date"] < launch).sum()) if launch is not None else len(prepared)
+    post_count = int((prepared["_date"] >= launch).sum()) if launch is not None else 0
+    predictors = predictor_candidates(prepared, outcome_col, date_col, campaign_flag_col)
+    return {
+        "prepared": prepared,
+        "frequency": frequency,
+        "missing_periods": int(prepared.attrs.get("missing_periods", missing)),
+        "start_date": prepared["_date"].min(),
+        "end_date": prepared["_date"].max(),
+        "observations": len(prepared),
+        "campaign_launch": launch,
+        "pre_observations": pre_count,
+        "post_observations": post_count,
+        "predictors": predictors,
+    }
+
+
 def intervention_periods(data: pd.DataFrame, intervention_date: str, campaign_end_date: str = "") -> tuple[pd.DataFrame, pd.DataFrame]:
     launch = pd.Timestamp(intervention_date)
     end = pd.Timestamp(campaign_end_date) if campaign_end_date else data["_date"].max()

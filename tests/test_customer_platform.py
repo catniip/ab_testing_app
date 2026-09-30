@@ -7,12 +7,16 @@ from src.experiment_platform.arm_selection import (
     validate_categorical_strategy,
     validate_numeric_strategy,
 )
-from src.experiment_platform.decision import arm_decision_scorecard, experiment_recommendation, guardrail_status, recommendation_status
+from src.experiment_platform.decision import arm_decision_scorecard, experiment_recommendation, guardrail_status, project_rollout_impact, recommendation_status
 from src.experiment_platform.demo_data import experiment_results, historical_portfolio
 from src.experiment_platform.charts import (
+    customer_allocation_health_chart,
     customer_category_bar,
+    customer_decision_map,
+    customer_design_tradeoff_chart,
     customer_option_chart,
     customer_required_accounts_chart,
+    customer_rollout_impact_chart,
     customer_strategy_outcome_chart,
     customer_traffic_allocation_chart,
     historical_association,
@@ -105,6 +109,35 @@ def test_customer_visuals_use_unique_accounts_and_business_colors():
     options = customer_option_chart(5000, [3000, 8000], "BAU", ["Low", "High"], "Credit Line", numeric=True)
     assert [trace.marker.color for trace in options.data] == ["#2457a6", "#ef4d4d", "#d69a1f"]
 
+    allocation = customer_allocation_health_chart({"BAU": 100, "Offer A": 120}, {"BAU": 110, "Offer A": 110})
+    assert [trace.name for trace in allocation.data] == ["Observed", "Planned"]
+    assert list(allocation.data[0].y) == [100.0, 120.0]
+
+
+def test_customer_design_tradeoff_chart_highlights_current_plan():
+    chart = customer_design_tradeoff_chart(15.0, 1200, 8.0, "month")
+    assert len(chart.data) == 2
+    assert list(chart.data[1].text) == ["Current plan"]
+    assert int(chart.data[1].y[0]) == 1200
+
+
+def test_customer_decision_map_orients_lower_is_better_as_positive_benefit():
+    scorecard = pd.DataFrame(
+        [{"Treatment Arm": "Offer A", "Decision": "Scale candidate", "Primary Evidence": "Clear benefit", "Guardrail": "Pass", "Primary Effect": -2.0}]
+    )
+    results = pd.DataFrame([{"Credit Line": "Offer A", "N": 500}])
+    chart = customer_decision_map(scorecard, results, 1.0, "Lower is Better", "Loss")
+    assert float(chart.data[0].x[0]) == 2.0
+    assert float(chart.data[0].y[0]) == 2.0
+
+
+def test_customer_rollout_impact_chart_reaches_full_projected_impact():
+    result = pd.Series({"Effect vs Control": 2.0, "CI Lower": 1.0, "CI Upper": 3.0})
+    chart = customer_rollout_impact_chart(result, 1000, "Higher is Better", 6, "Pilot, then scale")
+    expected_trace = chart.data[2]
+    assert float(expected_trace.y[-1]) == 2000.0
+    assert float(expected_trace.customdata[-1][0]) == 1000.0
+
 
 def test_customer_plan_visuals_show_required_accounts_and_full_traffic_split():
     plan = pd.DataFrame(
@@ -193,7 +226,9 @@ def test_lower_is_better_primary_can_be_recommended():
         ]
     )
     recommendation = experiment_recommendation(primary, None, None, "Lower is Better", "Lower is Better")
-    assert "Recommended Strategy" in recommendation
+    assert "Promising result" in recommendation
+    assert "no safety outcome" in recommendation
+    assert recommendation_status(recommendation) == "warning"
 
 
 def test_holm_adjustment_and_result_validation():
@@ -249,6 +284,7 @@ def test_analysis_integrity_summary_reports_arm_balance_and_missingness():
     assert summary["duplicate_units"] == 0
     assert summary["missing_by_metric"]["Primary"] == 1
     assert summary["srm_status"] == "Pass"
+    assert summary["expected_counts"] == {5000: 20.0, 3000: 20.0, 8000: 20.0}
 
 
 def test_assignment_balance_uses_planned_traffic_shares():
@@ -282,3 +318,32 @@ def test_arm_decision_scorecard_combines_evidence_magnitude_and_guardrail():
     assert bool(scorecard.loc[0, "Meets Planned Effect"])
     assert scorecard.loc[0, "Guardrail"] == "Fail"
     assert scorecard.loc[0, "Decision"] == "Do not scale"
+
+
+def test_clear_primary_result_without_guardrail_is_promising_not_rollout_ready():
+    primary = pd.DataFrame(
+        [
+            {"Credit Line": "Control", "Is Control": True, "Effect vs Control": 0.0, "Relative Lift": 0.0, "Significant": False, "CI Lower": None, "CI Upper": None},
+            {"Credit Line": "Offer A", "Is Control": False, "Effect vs Control": 12.0, "Relative Lift": 0.08, "Significant": True, "CI Lower": 3.0, "CI Upper": 21.0, "Adjusted p-value": 0.01},
+        ]
+    )
+    scorecard = arm_decision_scorecard(primary, "Higher is Better", 10.0)
+    assert scorecard.loc[0, "Decision"] == "Promising; add safety check"
+
+
+def test_rollout_impact_projects_effect_interval_and_cost():
+    result = pd.Series({"Effect vs Control": 2.0, "CI Lower": 1.0, "CI Upper": 3.0})
+    projection = project_rollout_impact(result, 1000, "Higher is Better", 5.0, 1000.0)
+    assert projection["outcome_impact"] == 2000.0
+    assert projection["outcome_lower"] == 1000.0
+    assert projection["outcome_upper"] == 3000.0
+    assert projection["net_value"] == 9000.0
+
+    lower_is_better = project_rollout_impact(
+        pd.Series({"Effect vs Control": -0.02, "CI Lower": -0.03, "CI Upper": -0.01}),
+        1000,
+        "Lower is Better",
+    )
+    assert lower_is_better["outcome_impact"] == 20.0
+    assert lower_is_better["outcome_lower"] == 10.0
+    assert lower_is_better["outcome_upper"] == 30.0

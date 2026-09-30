@@ -6,3 +6,5 @@ __pycache__/
 .env
 .env.*
 .streamlit/secrets.toml
+.experiment_portfolio.json
+.experiment_portfolio.json.tmp

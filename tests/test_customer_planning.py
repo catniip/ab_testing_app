@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
 
-from src.experiment_platform.customer_planning import assign_group_labels, calculate_group_design, calculate_variant_group_design, default_numeric_groups, suggest_group_designs
+from src.experiment_platform.customer_planning import automatic_matching_distance, assign_group_labels, build_customer_preview, calculate_group_design, calculate_variant_group_design, default_numeric_groups, planning_comparison_count, suggest_group_designs
+from src.experiment_platform.data_access import load_customer_demo
 from src.experiment_platform.models import DesignConfig, MetricConfig
 
 
@@ -21,6 +22,26 @@ def test_default_fico_groups_and_assignment():
     assert definitions[0]["label"] == "Below 660"
     assert definitions[-1]["label"] == "720+"
     assert labels.tolist() == ["Below 660", "Below 660", "660 to 719", "660 to 719", "720+", "720+"]
+
+
+def test_customer_preview_is_one_row_per_account_with_business_context():
+    raw = load_customer_demo("General Customer Test")
+    preview = build_customer_preview(
+        raw,
+        "account_id",
+        "primary_outcome",
+        "cpc",
+        "risk_segment",
+        "historical_experience",
+        "booking_date",
+        "mob",
+    )
+    assert preview["unique_accounts"] == raw["account_id"].nunique()
+    assert len(preview["accounts"]) == raw["account_id"].nunique()
+    assert preview["product_count"] == raw["cpc"].nunique()
+    assert preview["group_count"] == raw["risk_segment"].nunique()
+    assert preview["accounts"]["Customer / Account"].is_unique
+    assert {"Historical Strategy", "Average Outcome", "Periods"}.issubset(preview["accounts"].columns)
 
 
 def test_group_plan_allocates_flow_to_finish_lines_together():
@@ -101,3 +122,73 @@ def test_named_offer_plan_uses_group_level_history_without_strategy_column():
     assert all(row["Support"] == "Group-level pooled history" for row in rows)
     assert abs(sum(row["Traffic Allocation"] for row in rows) - 1) < 1e-9
     assert comparisons and "Revenue" in binding
+
+
+def test_automatic_matching_distance_excludes_remote_history():
+    assert automatic_matching_distance([3000, 8000]) == 2500
+    history = pd.DataFrame(
+        {
+            "current_credit_line": [-5000, 2500, 3000, 3500, 7500, 8000, 8500, 20000],
+            "outcome": [10, 80, 100, 120, 180, 200, 220, 500],
+        }
+    )
+    metric = MetricConfig(
+        "Outcome",
+        "outcome",
+        "Primary",
+        effect_type="Absolute",
+        effect_value=20,
+        source_column="outcome",
+        processed_column="outcome",
+    )
+    rows, _, _ = calculate_group_design(
+        history,
+        "current_credit_line",
+        {"Primary": metric},
+        DesignConfig(sample_size_basis="Primary Metric Only"),
+        3000,
+        [8000],
+        eligible_flow=100,
+        group_label="All customers",
+    )
+    assert sum(row["Historical N"] for row in rows) == 6
+    assert all(row["Historical Match Limit"] == 2500 for row in rows)
+
+
+def test_joint_audience_scope_protects_all_treatment_comparisons():
+    assert planning_comparison_count(2, 3, "Separate decision per audience") == 2
+    assert planning_comparison_count(2, 3, "One joint decision across audiences") == 6
+
+    metric = MetricConfig(
+        "Outcome",
+        "outcome",
+        "Primary",
+        effect_type="Relative %",
+        effect_value=0.15,
+        source_column="outcome",
+        processed_column="outcome",
+    )
+    design = DesignConfig(sample_size_basis="Primary Metric Only")
+    separate, _, _ = calculate_group_design(
+        planning_history(),
+        "current_credit_line",
+        {"Primary": metric},
+        design,
+        5000,
+        [3000, 8000],
+        eligible_flow=300,
+        group_label="Prime",
+        family_comparisons=2,
+    )
+    joint, _, _ = calculate_group_design(
+        planning_history(),
+        "current_credit_line",
+        {"Primary": metric},
+        design,
+        5000,
+        [3000, 8000],
+        eligible_flow=300,
+        group_label="Prime",
+        family_comparisons=6,
+    )
+    assert sum(row["Required Accounts"] for row in joint) > sum(row["Required Accounts"] for row in separate)

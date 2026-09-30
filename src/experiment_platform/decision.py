@@ -36,6 +36,8 @@ def experiment_recommendation(
     if candidates.empty:
         return "No treatment produced a beneficial statistically significant primary-metric result. Do not scale based on this experiment."
     best = candidates.sort_values("Benefit Score", ascending=False).iloc[0]
+    if guardrail is None or guardrail.empty:
+        return f"Promising result: {best['Credit Line']} improved the primary outcome, but no safety outcome was configured. Complete a risk review before rollout."
     if guardrail is not None and not guardrail.empty:
         g = guardrail[guardrail["Credit Line"] == best["Credit Line"]]
         if not g.empty:
@@ -70,8 +72,10 @@ def arm_decision_scorecard(
                 safety = guardrail_status(matched.iloc[0], guardrail_threshold, guardrail_direction).title()
         if safety == "Fail":
             recommendation = "Do not scale"
-        elif evidence == "Clear benefit" and practical and safety in {"Pass", "Not configured"}:
+        elif evidence == "Clear benefit" and practical and safety == "Pass":
             recommendation = "Scale candidate"
+        elif evidence == "Clear benefit" and practical and safety == "Not configured":
+            recommendation = "Promising; add safety check"
         elif evidence == "Clear benefit":
             recommendation = "Review magnitude or safety"
         else:
@@ -97,6 +101,39 @@ def recommendation_status(message: str) -> str:
         return "error"
     if "review before scaling" in lower:
         return "warning"
+    if "no safety outcome" in lower or "promising result" in lower:
+        return "warning"
     if "no treatment produced" in lower or "do not scale" in lower:
         return "warning"
     return "success"
+
+
+def project_rollout_impact(
+    result: pd.Series,
+    rollout_population: int,
+    primary_direction: str = "Higher is Better",
+    value_per_outcome_unit: float = 1.0,
+    implementation_cost: float = 0.0,
+) -> dict[str, float]:
+    """Project a measured per-unit effect to a user-supplied rollout population."""
+    population = max(int(rollout_population), 0)
+    direction = -1.0 if primary_direction == "Lower is Better" else 1.0
+    effect = direction * float(result["Effect vs Control"]) * population
+    interval = sorted(
+        [
+            direction * float(result["CI Lower"]) * population,
+            direction * float(result["CI Upper"]) * population,
+        ]
+    )
+    value = max(float(value_per_outcome_unit), 0.0)
+    cost = max(float(implementation_cost), 0.0)
+    return {
+        "population": population,
+        "outcome_impact": effect,
+        "outcome_lower": interval[0],
+        "outcome_upper": interval[1],
+        "gross_value": effect * value,
+        "net_value": effect * value - cost,
+        "net_lower": interval[0] * value - cost,
+        "net_upper": interval[1] * value - cost,
+    }

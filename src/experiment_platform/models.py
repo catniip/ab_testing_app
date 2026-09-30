@@ -100,6 +100,7 @@ class DesignConfig:
     allocation: str = "Traffic Allocation"
     sample_size_basis: str = "Power All Configured Metrics"
     multiplicity_method: str = "Holm"
+    audience_decision_scope: str = "Separate decision per audience"
     attrition_rate: float = 0.0
     planned_launch_date: str = ""
     outcome_delay_value: int = 0

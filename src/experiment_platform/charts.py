@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -49,6 +51,252 @@ def customer_category_bar(
         yaxis_title=category_label,
         showlegend=False,
     )
+    return fig
+
+
+def customer_allocation_health_chart(arm_counts: dict, expected_counts: dict):
+    """Compare observed experiment units with the planned allocation."""
+    if not arm_counts:
+        return go.Figure()
+    arms = list(arm_counts)
+    observed = [float(arm_counts.get(arm, 0)) for arm in arms]
+    expected = [float(expected_counts.get(arm, 0)) for arm in arms]
+    fig = go.Figure()
+    fig.add_bar(
+        x=[str(arm) for arm in arms],
+        y=observed,
+        name="Observed",
+        marker_color=CONTROL_COLOR,
+        text=[f"{value:,.0f}" for value in observed],
+        textposition="outside",
+        hovertemplate="%{x}<br>Observed units: %{y:,.0f}<extra></extra>",
+    )
+    if any(expected):
+        fig.add_bar(
+            x=[str(arm) for arm in arms],
+            y=expected,
+            name="Planned",
+            marker_color="#cbd3df",
+            text=[f"{value:,.0f}" for value in expected],
+            textposition="outside",
+            hovertemplate="%{x}<br>Planned units: %{y:,.0f}<extra></extra>",
+        )
+    fig.update_layout(
+        template="plotly_white",
+        height=310,
+        margin=dict(l=20, r=20, t=20, b=45),
+        barmode="group",
+        xaxis_title="Test Group",
+        yaxis_title="Customers / Accounts",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    return fig
+
+
+def customer_design_tradeoff_chart(
+    current_effect: float,
+    total_accounts: int,
+    longest_duration: float,
+    duration_label: str,
+    effect_suffix: str = "%",
+):
+    """Show how the decision threshold changes required accounts and duration."""
+    if current_effect <= 0 or total_accounts <= 0 or longest_duration <= 0:
+        return go.Figure()
+    rows = []
+    for multiplier in [0.5, 0.65, 0.8, 1.0, 1.25, 1.5, 2.0]:
+        effect = current_effect * multiplier
+        scale = (current_effect / effect) ** 2
+        rows.append(
+            {
+                "Effect": effect,
+                "Required Accounts": int(math.ceil(total_accounts * scale)),
+                "Longest Duration": longest_duration * scale,
+                "Current": math.isclose(multiplier, 1.0),
+            }
+        )
+    data = pd.DataFrame(rows)
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=data["Effect"],
+            y=data["Required Accounts"],
+            mode="lines+markers",
+            line=dict(color="#ef4d4d", width=3),
+            marker=dict(size=9, color="#ef4d4d", line=dict(color="white", width=2)),
+            customdata=data[["Longest Duration"]],
+            hovertemplate=(
+                f"Decision threshold: %{{x:.1f}}{effect_suffix}<br>"
+                "Required accounts: %{y:,.0f}<br>"
+                f"Longest duration: %{{customdata[0]:.1f}} {duration_label}s<extra></extra>"
+            ),
+            name="Planning trade-off",
+        )
+    )
+    current = data[data["Current"]]
+    fig.add_trace(
+        go.Scatter(
+            x=current["Effect"],
+            y=current["Required Accounts"],
+            mode="markers+text",
+            marker=dict(size=18, color=CONTROL_COLOR, line=dict(color="white", width=3)),
+            text=["Current plan"],
+            textposition="top center",
+            hoverinfo="skip",
+            name="Current plan",
+        )
+    )
+    fig.update_layout(
+        template="plotly_white",
+        height=340,
+        margin=dict(l=20, r=30, t=35, b=45),
+        xaxis_title=f"Smallest Improvement Worth Acting On ({effect_suffix})" if effect_suffix else "Smallest Improvement Worth Acting On",
+        yaxis_title="Required Accounts",
+        showlegend=False,
+        hovermode="closest",
+    )
+    fig.update_yaxes(rangemode="tozero", tickformat=",")
+    return fig
+
+
+def customer_decision_map(
+    scorecard: pd.DataFrame,
+    primary_results: pd.DataFrame,
+    meaningful_effect: float,
+    primary_direction: str,
+    metric_label: str,
+):
+    """Place treatment options on a business-facing benefit and evidence map."""
+    if scorecard.empty:
+        return go.Figure()
+    data = scorecard.copy()
+    sample_sizes = primary_results.set_index("Credit Line")["N"].to_dict() if not primary_results.empty and "N" in primary_results else {}
+    direction = -1.0 if primary_direction == "Lower is Better" else 1.0
+    data["Business Benefit"] = pd.to_numeric(data["Primary Effect"], errors="coerce") * direction
+    data["Evidence Level"] = data["Primary Evidence"].map({"No benefit": 0, "Possible benefit": 1, "Clear benefit": 2}).fillna(0)
+    data["N"] = data["Treatment Arm"].map(sample_sizes).fillna(1).astype(float)
+    max_n = max(float(data["N"].max()), 1.0)
+    data["Marker Size"] = 18 + 18 * (data["N"] / max_n) ** 0.5
+    decision_colors = {
+        "Scale candidate": "#16856b",
+        "Promising; add safety check": "#d69a1f",
+        "Review magnitude or safety": "#d69a1f",
+        "Keep control": "#7891b3",
+        "Do not scale": "#ef4d4d",
+    }
+    colors = data["Decision"].map(decision_colors).fillna("#7891b3")
+    fig = go.Figure(
+        go.Scatter(
+            x=data["Business Benefit"],
+            y=data["Evidence Level"],
+            mode="markers+text",
+            marker=dict(size=data["Marker Size"], color=colors, line=dict(color="white", width=2), opacity=0.94),
+            text=data["Treatment Arm"].astype(str),
+            textposition="top center",
+            customdata=data[["Decision", "Primary Evidence", "Guardrail", "N"]],
+            hovertemplate=(
+                "%{text}<br>Benefit vs BAU: %{x:+,.2f}<br>"
+                "Evidence: %{customdata[1]}<br>Safety check: %{customdata[2]}<br>"
+                "Analyzed accounts: %{customdata[3]:,.0f}<br>Decision: %{customdata[0]}<extra></extra>"
+            ),
+        )
+    )
+    fig.add_vline(x=0, line_color="#aeb8c7", line_width=1)
+    if meaningful_effect > 0:
+        fig.add_vline(
+            x=abs(meaningful_effect),
+            line_dash="dash",
+            line_color="#ef4d4d",
+            annotation_text="Worth acting on",
+            annotation_position="top right",
+        )
+    fig.update_layout(
+        template="plotly_white",
+        height=380,
+        margin=dict(l=20, r=30, t=40, b=50),
+        xaxis_title=f"Business Benefit vs BAU · {metric_label} (higher is better)",
+        yaxis_title="Evidence",
+        showlegend=False,
+        hovermode="closest",
+    )
+    fig.update_yaxes(
+        tickmode="array",
+        tickvals=[0, 1, 2],
+        ticktext=["No demonstrated benefit", "Possible benefit", "Clear benefit"],
+        range=[-0.45, 2.55],
+        gridcolor="#edf0f4",
+    )
+    return fig
+
+
+def customer_rollout_impact_chart(
+    result: pd.Series,
+    rollout_population: int,
+    primary_direction: str,
+    rollout_periods: int,
+    rollout_pattern: str,
+):
+    """Project cumulative outcome impact as a treatment reaches full rollout."""
+    periods = max(int(rollout_periods), 1)
+    population = max(int(rollout_population), 0)
+    direction = -1.0 if primary_direction == "Lower is Better" else 1.0
+    effect = direction * float(result["Effect vs Control"])
+    lower, upper = sorted([direction * float(result["CI Lower"]), direction * float(result["CI Upper"])])
+    progress = [index / periods for index in range(periods + 1)]
+    if rollout_pattern == "Fast start":
+        coverage = [value**0.6 for value in progress]
+    elif rollout_pattern == "Pilot, then scale":
+        coverage = [value**1.7 for value in progress]
+    else:
+        coverage = progress
+    reached = [population * value for value in coverage]
+    expected = [effect * value for value in reached]
+    low_values = [lower * value for value in reached]
+    high_values = [upper * value for value in reached]
+    line_color = "#16856b" if expected[-1] >= 0 else "#ef4d4d"
+    fill_color = "rgba(22,133,107,0.13)" if expected[-1] >= 0 else "rgba(239,77,77,0.12)"
+    x_values = list(range(periods + 1))
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=x_values, y=low_values, mode="lines", line=dict(width=0), hoverinfo="skip", showlegend=False))
+    fig.add_trace(
+        go.Scatter(
+            x=x_values,
+            y=high_values,
+            mode="lines",
+            line=dict(width=0),
+            fill="tonexty",
+            fillcolor=fill_color,
+            name="95% plausible range",
+            hoverinfo="skip",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=x_values,
+            y=expected,
+            mode="lines+markers",
+            line=dict(color=line_color, width=3),
+            marker=dict(size=7, color=line_color, line=dict(color="white", width=1.5)),
+            customdata=[[reached[index], low_values[index], high_values[index]] for index in range(len(x_values))],
+            hovertemplate=(
+                "Period %{x}<br>Customers reached: %{customdata[0]:,.0f}<br>"
+                "Expected cumulative impact: %{y:+,.0f}<br>"
+                "Plausible range: %{customdata[1]:+,.0f} to %{customdata[2]:+,.0f}<extra></extra>"
+            ),
+            name="Expected impact",
+        )
+    )
+    fig.add_hline(y=0, line_color="#aeb8c7", line_width=1)
+    fig.update_layout(
+        template="plotly_white",
+        height=360,
+        margin=dict(l=20, r=25, t=35, b=45),
+        xaxis_title="Rollout Period",
+        yaxis_title="Cumulative Outcome Impact",
+        legend=dict(orientation="h", y=1.12, x=0),
+        hovermode="x unified",
+    )
+    fig.update_xaxes(dtick=max(1, periods // 6))
     return fig
 
 
@@ -177,6 +425,7 @@ def customer_strategy_outcome_chart(
     strategy_label: str,
     metric_label: str,
     metric_type: str = "Continuous",
+    height: int = 340,
 ):
     """Compare historical outcomes across named strategy categories."""
     if df.empty or strategy_col not in df.columns or metric_col not in df.columns:
@@ -217,7 +466,7 @@ def customer_strategy_outcome_chart(
     )
     fig.update_layout(
         template="plotly_white",
-        height=340,
+        height=height,
         margin=dict(l=20, r=20, t=35, b=55),
         xaxis_title=strategy_label,
         yaxis_title=metric_label,
@@ -496,11 +745,50 @@ def detectable_effect_curve(curve: pd.DataFrame, current_n: int):
     return fig
 
 
+def portfolio_value_chart(timeline: pd.DataFrame):
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=timeline["date"],
+            y=timeline["projected"],
+            mode="lines",
+            name="Projected",
+            line=dict(color="#91a2bb", width=2, dash="dash"),
+            hovertemplate="%{x|%b %Y}<br>Projected value: $%{y:,.0f}<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=timeline["date"],
+            y=timeline["realized"],
+            mode="lines+markers",
+            name="Realized / rolling out",
+            line=dict(color="#16856b", width=3),
+            marker=dict(size=7, color="#16856b"),
+            fill="tozeroy",
+            fillcolor="rgba(22,133,107,.08)",
+            hovertemplate="%{x|%b %Y}<br>Realized value: $%{y:,.0f}<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        template="plotly_white",
+        height=285,
+        margin=dict(l=10, r=20, t=15, b=10),
+        legend=dict(orientation="h", y=1.06, x=1, xanchor="right"),
+        hovermode="x unified",
+        yaxis=dict(tickprefix="$", tickformat="~s", gridcolor="#edf0f4"),
+        xaxis=dict(title=None, gridcolor="#f3f5f8"),
+        showlegend=True,
+    )
+    return fig
+
+
 def time_series_line(data: pd.DataFrame, intervention_date: str, outcome_label: str, planned_launch_date: str = "", recommended_end_date: str = ""):
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=data["_date"], y=data["_outcome"], mode="lines", name="Observed Outcome", line=dict(color="#2457a6")))
+    fig.add_trace(go.Scatter(x=data["_date"], y=data["_outcome"], mode="lines", name="Observed Outcome", line=dict(color="#2457a6", width=2.6)))
     if intervention_date:
         launch = pd.Timestamp(intervention_date)
+        fig.add_vrect(x0=launch, x1=pd.to_datetime(data["_date"]).max(), fillcolor="#ef4d4d", opacity=0.045, line_width=0)
         fig.add_shape(type="line", x0=launch, x1=launch, y0=0, y1=1, xref="x", yref="paper", line=dict(color="#b42318", dash="dash"))
         fig.add_annotation(x=launch, y=1, xref="x", yref="paper", text="Campaign Launch", showarrow=False, yanchor="bottom")
     planned = pd.Timestamp(planned_launch_date) if planned_launch_date else None
@@ -518,7 +806,17 @@ def time_series_line(data: pd.DataFrame, intervention_date: str, outcome_label: 
     if planned is not None and recommended_end is not None:
         window = max(recommended_end - planned, pd.Timedelta(days=1))
         axis_end = max(axis_end, recommended_end + window * 0.55)
-    fig.update_layout(template="plotly_white", height=380, margin=dict(l=20, r=20, t=55, b=20), xaxis_title="Date", yaxis_title=outcome_label)
+    fig.update_layout(
+        template="plotly_white",
+        height=380,
+        margin=dict(l=20, r=20, t=55, b=20),
+        xaxis_title="Date",
+        yaxis_title=outcome_label,
+        hovermode="x unified",
+        legend=dict(orientation="h", y=1.08, x=0),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="#ffffff",
+    )
     fig.update_xaxes(range=[dates.min(), axis_end])
     return fig
 
@@ -588,7 +886,7 @@ def cumulative_impact_chart(post_result: pd.DataFrame, outcome_label: str = "Out
     return fig
 
 
-def geo_dma_map(markets: pd.DataFrame, title: str = "Geographic Markets"):
+def geo_dma_map(markets: pd.DataFrame, title: str = "Geographic Markets", height: int = 430, show_labels: bool = False):
     colors = {
         "Available DMA": "#68707a",
         "Selected Candidate DMA": "#2457a6",
@@ -598,19 +896,44 @@ def geo_dma_map(markets: pd.DataFrame, title: str = "Geographic Markets"):
         "Not assigned": "#c9ced6",
     }
     data = markets.dropna(subset=["lat", "lon"]).copy()
+    text_column = "label" if show_labels and "label" in data.columns else "dma" if show_labels else None
     fig = px.scatter_geo(
         data,
         lat="lat",
         lon="lon",
         color="status",
         color_discrete_map=colors,
+        category_orders={"status": ["Test", "Control", "Selected Candidate DMA", "Available DMA", "Not assigned", "Excluded DMA"]},
+        text=text_column,
         hover_name="dma",
         hover_data={"status": True, "historical_outcome": ":,.0f", "lat": False, "lon": False},
         scope="usa",
         template="plotly_white",
     )
-    fig.update_traces(marker=dict(size=12, line=dict(width=1, color="#ffffff")))
-    fig.update_layout(height=430, margin=dict(l=10, r=10, t=35, b=10), title=title, legend_title_text="")
+    trace_mode = "markers+text" if show_labels else "markers"
+    fig.update_traces(
+        mode=trace_mode,
+        textposition="top center",
+        textfont=dict(size=9, color="#303846"),
+        marker=dict(size=13 if show_labels else 12, line=dict(width=1.5, color="#ffffff")),
+    )
+    fig.update_geos(
+        bgcolor="rgba(0,0,0,0)",
+        landcolor="#eef2f6",
+        lakecolor="#dcecf8",
+        subunitcolor="#ffffff",
+        countrycolor="#d2d9e3",
+        showlakes=True,
+    )
+    fig.update_layout(
+        height=height,
+        margin=dict(l=6, r=6, t=30 if title else 8, b=4),
+        title=title,
+        legend_title_text="",
+        legend=dict(orientation="h", y=1.02, x=0, bgcolor="rgba(255,255,255,.84)"),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+    )
     return fig
 
 
@@ -633,10 +956,18 @@ def geo_trend_chart(trend: pd.DataFrame, intervention_date: str, view_label: str
     for group, color in [("Test", "#b42318"), ("Control", "#2457a6")]:
         group_data = trend[trend["group"] == group]
         if not group_data.empty:
-            fig.add_trace(go.Scatter(x=group_data["_date"], y=group_data["_display_outcome"], mode="lines", name=group, line=dict(color=color)))
+            fig.add_trace(go.Scatter(x=group_data["_date"], y=group_data["_display_outcome"], mode="lines", name=group, line=dict(color=color, width=2.6)))
     if intervention_date:
         launch = pd.Timestamp(intervention_date)
         fig.add_shape(type="line", x0=launch, x1=launch, y0=0, y1=1, xref="x", yref="paper", line=dict(color="#b42318", dash="dash"))
         fig.add_annotation(x=launch, y=1, xref="x", yref="paper", text="Campaign Launch", showarrow=False, yanchor="bottom")
-    fig.update_layout(template="plotly_white", height=360, margin=dict(l=20, r=20, t=30, b=20), xaxis_title="Date", yaxis_title=view_label)
+    fig.update_layout(
+        template="plotly_white",
+        height=360,
+        margin=dict(l=20, r=20, t=24, b=20),
+        xaxis_title="Date",
+        yaxis_title=view_label,
+        hovermode="x unified",
+        legend=dict(orientation="h", y=1.05, x=0),
+    )
     return fig

@@ -14,6 +14,56 @@ from .metrics import metric_baseline
 from .models import DesignConfig, MetricConfig
 
 
+def build_customer_preview(
+    data: pd.DataFrame,
+    unit_col: str,
+    outcome_col: str,
+    product_col: str = "",
+    group_col: str = "",
+    strategy_col: str = "",
+    date_col: str = "",
+    period_col: str = "",
+) -> dict:
+    """Aggregate longitudinal customer history into one presentation row per unit."""
+    if unit_col not in data or outcome_col not in data:
+        raise ValueError("Customer preview requires valid unit and outcome columns.")
+    source = data.dropna(subset=[unit_col]).copy()
+    source[outcome_col] = pd.to_numeric(source[outcome_col], errors="coerce")
+    aggregations: dict[str, tuple[str, str]] = {"Average Outcome": (outcome_col, "mean")}
+    if product_col and product_col in source:
+        aggregations["Product / Brand"] = (product_col, "first")
+    if group_col and group_col in source:
+        aggregations["Customer Group"] = (group_col, "first")
+    if strategy_col and strategy_col in source:
+        aggregations["Historical Strategy"] = (strategy_col, "first")
+    if date_col and date_col in source:
+        source[date_col] = pd.to_datetime(source[date_col], errors="coerce")
+        aggregations["Customer Start"] = (date_col, "min")
+    if period_col and period_col in source:
+        aggregations["Periods"] = (period_col, "nunique")
+    accounts = source.groupby(unit_col, as_index=False).agg(**aggregations).rename(columns={unit_col: "Customer / Account"})
+    product_counts = (
+        accounts["Product / Brand"].astype(str).value_counts().rename_axis("Product / Brand").reset_index(name="Customers / Accounts")
+        if "Product / Brand" in accounts else pd.DataFrame(columns=["Product / Brand", "Customers / Accounts"])
+    )
+    group_counts = (
+        accounts["Customer Group"].astype(str).value_counts().rename_axis("Customer Group").reset_index(name="Customers / Accounts")
+        if "Customer Group" in accounts else pd.DataFrame(columns=["Customer Group", "Customers / Accounts"])
+    )
+    starts = accounts["Customer Start"].dropna() if "Customer Start" in accounts else pd.Series(dtype="datetime64[ns]")
+    return {
+        "accounts": accounts,
+        "source_rows": len(data),
+        "unique_accounts": len(accounts),
+        "product_counts": product_counts,
+        "group_counts": group_counts,
+        "product_count": int(accounts["Product / Brand"].nunique()) if "Product / Brand" in accounts else 0,
+        "group_count": int(accounts["Customer Group"].nunique()) if "Customer Group" in accounts else 0,
+        "start_date": starts.min() if not starts.empty else pd.NaT,
+        "end_date": starts.max() if not starts.empty else pd.NaT,
+    }
+
+
 def default_numeric_groups(values: pd.Series, column_name: str) -> list[dict]:
     numeric = pd.to_numeric(values, errors="coerce").dropna()
     if numeric.empty:
@@ -64,6 +114,20 @@ def candidate_lines(values: pd.Series, minimum: float, maximum: float, control: 
     return [value for value in candidates if not math.isclose(value, float(control))]
 
 
+def automatic_matching_distance(strategy_points: list[float]) -> float:
+    """Keep nearest-point evidence local while covering the full proposed range."""
+    points = np.sort(np.unique(np.asarray(strategy_points, dtype=float)))
+    if len(points) < 2:
+        return 0.0
+    return float(np.diff(points).max() / 2)
+
+
+def planning_comparison_count(treatment_count: int, audience_count: int, decision_scope: str) -> int:
+    """Return the number of confirmatory comparisons protected in planning."""
+    audience_multiplier = max(int(audience_count), 1) if decision_scope == "One joint decision across audiences" else 1
+    return max(int(treatment_count), 1) * audience_multiplier
+
+
 def calculate_group_design(
     group_df: pd.DataFrame,
     strategy_column: str,
@@ -73,8 +137,15 @@ def calculate_group_design(
     treatments: list[float],
     eligible_flow: float,
     group_label: str,
+    family_comparisons: int | None = None,
+    max_mapping_distance: float | None = None,
 ) -> tuple[list[dict], list[dict], str]:
     points = [float(control)] + [float(value) for value in treatments]
+    matching_distance = (
+        automatic_matching_distance(points)
+        if max_mapping_distance is None or max_mapping_distance <= 0
+        else float(max_mapping_distance)
+    )
     stats_by_role = {}
     for role, metric in metrics.items():
         metric_column = metric.processed_column or metric.column
@@ -84,6 +155,7 @@ def calculate_group_design(
             metric_column,
             points,
             grouping="Closest testing line",
+            max_distance=matching_distance,
             metric_type=metric.metric_type,
         )
     total_analyzable, binding, comparisons, allocation = design_neyman_allocation(
@@ -92,6 +164,7 @@ def calculate_group_design(
         stats_by_role,
         float(control),
         [float(value) for value in treatments],
+        family_comparisons=family_comparisons,
     )
     enrollment = []
     total_enrollment = 0
@@ -117,6 +190,7 @@ def calculate_group_design(
                 "Historical Mean": float(row["Historical Mean"]),
                 "Historical SD": float(row["Historical SD"]),
                 "Support": str(row["Support"]),
+                "Historical Match Limit": matching_distance,
             }
         )
     return output, comparisons, binding
@@ -130,6 +204,7 @@ def calculate_variant_group_design(
     treatments: list[object],
     eligible_flow: float,
     group_label: str,
+    family_comparisons: int | None = None,
 ) -> tuple[list[dict], list[dict], str]:
     """Plan named or unsupported-history arms from group-level outcome assumptions."""
     arms = [control, *treatments]
@@ -168,7 +243,7 @@ def calculate_variant_group_design(
     n_per_arm, binding, comparisons = design_sample_size(
         group_metrics,
         design,
-        comparisons=max(len(treatments), 1),
+        comparisons=max(int(family_comparisons or len(treatments)), 1),
     )
     enrollment_n = int(math.ceil(n_per_arm / max(1 - design.attrition_rate, 1e-9)))
     total_enrollment = enrollment_n * len(arms)
@@ -208,6 +283,8 @@ def suggest_group_designs(
     eligible_flow: float,
     max_periods: int,
     limit: int = 3,
+    family_comparisons: int | None = None,
+    max_mapping_distance: float | None = None,
 ) -> pd.DataFrame:
     candidates = candidate_lines(group_df[strategy_column], minimum, maximum, control)
     if treatment_count <= 0 or len(candidates) < treatment_count:
@@ -217,8 +294,16 @@ def suggest_group_designs(
     for proposed in combinations(candidates, treatment_count):
         points = np.array(sorted([float(control), *[float(value) for value in proposed]]), dtype=float)
         if historical_values.size:
-            nearest = np.abs(historical_values[:, None] - points[None, :]).argmin(axis=1)
-            counts = np.bincount(nearest, minlength=len(points))
+            distances = np.abs(historical_values[:, None] - points[None, :])
+            nearest = distances.argmin(axis=1)
+            nearest_distance = distances[np.arange(len(historical_values)), nearest]
+            matching_distance = (
+                automatic_matching_distance(points.tolist())
+                if max_mapping_distance is None or max_mapping_distance <= 0
+                else float(max_mapping_distance)
+            )
+            supported = nearest_distance <= matching_distance
+            counts = np.bincount(nearest[supported], minlength=len(points))
             minimum_count = int(counts.min())
         else:
             minimum_count = 0
@@ -236,6 +321,8 @@ def suggest_group_designs(
                 list(proposed),
                 eligible_flow,
                 "",
+                family_comparisons=family_comparisons,
+                max_mapping_distance=max_mapping_distance,
             )
         except ValueError:
             continue

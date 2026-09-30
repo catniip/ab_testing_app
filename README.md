@@ -1,53 +1,94 @@
 # Experiment Design & Measurement Platform
 
-Internal Streamlit MVP for customer-level experiment design, geographic market testing, campaign time-series analysis, measurement, and decisioning.
+A business-first Streamlit application for planning, monitoring, analyzing, and documenting experiments across three common operating models:
 
-Implemented workflow:
+- **Customer experiments**: randomized tests across customers or accounts
+- **Geographic tests**: experiments with pre-assigned Test and Control markets
+- **Time-series experiments**: campaign measurement when no randomized control group is available
 
-- Customer-Level Experimentation
-- Time Series Analysis
-- Geographic Test
-- Data Source, Population, Metrics, Strategy, Design, Analysis, and Decision steps with shared session configuration
-- Manual metric assumptions as the default fast path for experiment design
-- Raw customer data processing into analysis-ready unit-level metric datasets
-- Longitudinal unit-period and cross-sectional one-row-per-unit customer datasets
-- Optional population segmentation, maturity eligibility, completeness diagnostics, and metric-specific historical cohorts
-- Unified discrete treatment-arm setup with named variants and optional ordered numeric levels
-- Reusable Credit Line, Marketing Offer, Pricing / Fee, Digital Experience, and Retention templates
-- Separate Data and Metrics workflow steps with compact diagnostics and progressive disclosure
-- Role-based Primary, Secondary, and Guardrail metric tabs with configurable harm thresholds
-- Customer result-data audits for one-row-per-unit integrity, missing outcomes, arm counts, and sample-ratio mismatch
-- Generic treatment-arm charts and arm-level decision scorecards combining evidence, practical magnitude, and guardrail safety
-- Synthetic raw longitudinal portfolio data and synthetic experiment-result data
-- Synthetic campaign time-series data
-- Separate time-series workflow for CSV/Parquet uploads, internal-data placeholder, and synthetic demo data
-- Time-series date/outcome mapping, frequency checks, duplicate timestamp diagnostics, and campaign launch setup
-- Descriptive Pre-Post analysis and structural state-space counterfactual analysis with prediction intervals, pointwise impact, cumulative impact, pre-period backtesting, and decision-support summary
-- Separate geographic-test workflow for DMA x time uploads, internal-data placeholder, and synthetic demo data
-- Geographic date/DMA/outcome/group mapping, frequency checks, duplicate DMA/date diagnostics, fixed-assignment validation, and centroid-based U.S. map
-- Rollout planning from a user-supplied effect scenario, with campaign duration, earliest readout, detection chance, MDE, and required Test/Control DMA counts
-- Optional pre-existing pair metadata and market-size weighting; the platform never manufactures or changes Test/Control assignments
-- Historical comparability diagnostics and panel Difference-in-Differences with DMA/date fixed effects, DMA-clustered uncertainty, pre-trend checks, placebos, and leave-one-DMA-out sensitivity
-- CSV upload support, with Parquet upload support when available through pandas/pyarrow
-- Modular data access, design, power, analysis, formatting, and chart logic
-- Direction-aware binary and continuous power calculations
-- Holm-adjusted multi-arm inference with simultaneous confidence intervals
-- Separate enrollment duration, primary outcome readout, and full decision readout dates
-- Result-data validation for assignment integrity, sample-ratio mismatch, binary coding, and accidental duplicate metric mappings
-- Databricks Apps entrypoint in `app.yaml`
+The interface is designed for desktop demos and business users. Each workflow starts with a visual data story, keeps the main path simple, and places technical controls inside advanced settings.
 
-Planned but not implemented in this MVP:
+## What The Platform Does
 
-- Unity Catalog table loading
-- Full Bayesian state-space sampler for time-series impact modeling (the current model is a statsmodels structural state-space forecast with prediction intervals)
-- DMA polygon GeoJSON layer, when an approved geometry asset is supplied
-- Randomization-based geographic power simulation for sufficiently large market pools
-- Alternative allocation strategies
-- Covariate-adjusted, count/rate, ratio, and time-to-event estimators
+### Experiment Command Center
 
-## Local Run
+The home page gives teams a shared view of the experiment portfolio:
 
-Use Python 3.11.
+- Lifecycle status from Planning through Completed
+- Owner, planned launch, expected readout, and next action
+- Experiment Pulse for sample progress, traffic pace, allocation health, data freshness, and missing-data alerts
+- Saved configurations with version history, copy, and reopen actions
+- Frozen Launch / Iterate / Stop decision snapshots with reviewer and rationale
+- Printable one-page HTML business reports and staged rollout plans
+
+Saved experiments are stored locally in `.experiment_portfolio.json`. This file is intentionally ignored by Git.
+
+### Customer Experiments
+
+Use this workflow for acquisition policy, proactive credit-line increase, offers, pricing, retention, messaging, card design, product experiences, and other customer-level strategies.
+
+The opening page immediately shows:
+
+- Historical outcome by strategy
+- Customer and account coverage
+- Product / brand coverage
+- Customer-group mix
+- Available customer history and a one-row-per-account preview
+
+The planning flow is:
+
+1. **Bring Data**: upload customer history or use one of four demo scenarios.
+2. **Choose Audience**: optionally plan separately by one business grouping such as FICO band, risk tier, or revenue band.
+3. **Pick Outcome**: configure the primary outcome; secondary metrics and guardrails remain optional.
+4. **Define Options**: create named variants or ordered numeric strategy values.
+5. **Get Plan**: receive required accounts, traffic allocation, flow per option, and expected test duration.
+
+Customer planning supports longitudinal unit-period data and cross-sectional one-row-per-unit data. Numeric strategies can estimate arm-specific historical means and standard deviations using closest-test-value assignment, business-defined bins, or exact values. The recommended design uses generalized Neyman allocation so higher-variance options receive the sample they need while traffic is allocated toward a common completion time.
+
+The analysis flow accepts completed randomized-test results, checks one-row-per-unit integrity, missing outcomes, assignment balance, and sample-ratio mismatch, then produces arm-level lift, uncertainty, guardrail status, and a business recommendation.
+
+### Geographic Tests
+
+Use this workflow when the business already supplies fixed Test and Control DMAs or other markets. The platform does not manufacture or optimize market assignments.
+
+The first page previews the market panel visually before configuration, including geographic coverage, Test / Control composition, outcome history, and source data. Planning then estimates the market count and rollout duration supported by the supplied groups and effect scenario.
+
+Analysis uses panel Difference-in-Differences with:
+
+- DMA and date fixed effects
+- DMA-clustered uncertainty
+- Pre-trend diagnostics
+- Placebo intervention checks
+- Leave-one-DMA-out sensitivity
+- Optional market-size weighting and existing pair metadata
+
+### Time-Series Experiments
+
+Use this workflow for campaigns or policy changes where no randomized control group exists. Weekly and monthly data are supported.
+
+The opening page shows the full historical series, campaign timing, available pre/post observations, detected frequency, predictor availability, and raw source columns.
+
+The planning flow estimates detectable effect and campaign duration from historical pseudo-interventions. The expected campaign effect is a user-supplied business scenario, not a forecast of an unknown future effect. Results are evaluated through the longest selected duration and include calibration and limited-history safeguards.
+
+The analysis flow offers two methods:
+
+- **Pre-Post Analysis**: an automatically refreshed descriptive before/after comparison. It does not adjust for trend, seasonality, or concurrent changes.
+- **Structural Time Series Counterfactual**: an explicitly run state-space forecast using pre-campaign history and optional unaffected predictors. It reports expected outcome without intervention, incremental impact, uncertainty, backtesting, and model-reliability diagnostics.
+
+The current structural model uses `statsmodels`; it is not a full Bayesian sampler.
+
+## Statistical Design Notes
+
+- Continuous and binary outcomes use direction-aware power calculations.
+- Multi-arm customer inference uses Holm-adjusted comparisons and simultaneous confidence intervals.
+- Numeric customer strategies use group- and strategy-specific historical variability where support is available.
+- Geography analysis assumes Test / Control assignment is fixed before upload.
+- Time-series planning reports detection capability under a stated effect scenario; it cannot know the true campaign effect before launch.
+- Interim Experiment Pulse directions are operational signals and are not presented as final causal conclusions.
+
+## Quick Start
+
+Use Python 3.11:
 
 ```bash
 python3.11 -m venv .venv
@@ -56,27 +97,77 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## Monthly Campaign-Planning Sample
+Then open [http://127.0.0.1:8501](http://127.0.0.1:8501).
 
-Use `sample_data/time_series_monthly_campaign_planning.csv` to exercise the
-Time Series -> Plan Campaign workflow with monthly data. It contains 84
-historical month-start observations from January 2019 through December 2025
-and no post-launch campaign effect.
+## Suggested Demo Story
+
+For a short presentation:
+
+1. Open the **Command Center** to show the experiment portfolio and items requiring attention.
+2. Open **Customer** to show historical strategy/outcome evidence, then enter Plan to see the business-guided workflow.
+3. Open **Geography** to show the market map and fixed Test / Control story.
+4. Open **Time Series** to show the campaign timeline and the distinction between planning and impact analysis.
+5. Return to the Command Center and open a saved experiment, Experiment Pulse, or a frozen decision report.
+
+## Data Inputs
+
+CSV and Parquet uploads are supported.
+
+### Customer
+
+Required fields depend on the workflow, but typically include:
+
+- Customer or account ID
+- Outcome column
+- Assigned treatment arm for completed-result analysis
+- Optional product / brand, audience group, acquisition date, observation period, and historical strategy fields
+
+### Geography
+
+- Date
+- DMA or market identifier
+- Outcome
+- Fixed Test / Control group
+- Optional covariates, market weights, pair IDs, campaign spend, and exposure
+
+### Time Series
+
+- Date
+- Outcome
+- Optional unaffected comparison signals, campaign flag, spend, and operational exposure
+
+Internal Databricks controls are UI placeholders in this MVP; Unity Catalog loading is not connected yet.
+
+## Monthly Planning Sample
+
+`sample_data/time_series_monthly_campaign_planning.csv` contains 84 month-start observations from January 2019 through December 2025 for the **Time Series -> Plan Campaign** workflow.
 
 - Date: `date`
 - Outcome: `credit_card_applications`
-- Candidate predictors: `control_product_applications`,
-  `organic_search_index`, `consumer_demand_index`, and `fed_funds_rate`
+- Candidate predictors: `control_product_applications`, `organic_search_index`, `consumer_demand_index`, and `fed_funds_rate`
 - Optional operational exposure: `eligible_customers`
 
-The app should detect `Monthly` frequency with no missing periods. The planner
-will offer 2, 3, 4, 6, 9, and 12-month candidate durations. Under
-`Advanced / Model Inputs`, optionally select predictors only when they will be
-available after launch and cannot be changed by the campaign.
+The app should detect Monthly frequency with no missing periods and offer 2, 3, 4, 6, 9, and 12-month candidate durations. Select predictors only when they will remain available after launch and cannot be affected by the campaign.
+
+## Project Structure
+
+```text
+app.py                              Streamlit application and workflow UI
+src/experiment_platform/           Statistical, data, chart, and portfolio modules
+sample_data/                        Example time-series input
+tests/                              Unit and workflow regression tests
+app.yaml                            Databricks Apps entrypoint
+```
+
+Run the test suite with:
+
+```bash
+pytest -q
+```
 
 ## Databricks App
 
-The `app.yaml` starts Streamlit on port `8000`:
+`app.yaml` starts Streamlit on port `8000`:
 
 ```yaml
 command:
@@ -86,3 +177,15 @@ command:
   - --server.address=0.0.0.0
   - --server.port=8000
 ```
+
+## MVP Boundaries
+
+The following are not yet implemented:
+
+- Unity Catalog table loading and production authentication
+- Shared database-backed portfolio storage and multi-user permissions
+- Full Bayesian structural time-series sampling
+- Approved DMA polygon geometry; the current map uses market centroids
+- Randomization-based geographic power simulation for large candidate-market pools
+- Covariate-adjusted, count/rate, ratio, and time-to-event customer estimators
+- Production audit logging, deployment hardening, and automated data pipelines

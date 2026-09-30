@@ -3,6 +3,7 @@ import pandas as pd
 from src.experiment_platform.data_access import load_geo_demo
 from src.experiment_platform.geography import (
     aggregate_trend,
+    build_geo_preview,
     evaluate_geo_balance,
     infer_geo_schema,
     leave_one_dma_out,
@@ -36,6 +37,18 @@ def test_geo_demo_schema_and_validation():
     assert quality["frequency"] == "Weekly"
     assert quality["dma_count"] >= 10
     assert quality["duplicates"] == 0
+
+
+def test_geo_preview_keeps_market_assignment_and_source_coverage():
+    panel, assignment = _demo_inputs()
+    preview = build_geo_preview(panel, assignment, "population")
+    assert preview["quality"]["dma_count"] == panel["_dma"].nunique()
+    assert len(preview["markets"]) == panel["_dma"].nunique()
+    assert set(preview["markets"]["Assignment"]) == {"Test", "Control"}
+    assert {"Test", "Control"}.issubset(set(preview["trend"]["group"]))
+    assert "Market Size" in preview["markets"]
+    assert preview["start_date"] == panel["_date"].min()
+    assert preview["end_date"] == panel["_date"].max()
 
 
 def test_fixed_assignment_is_long_form_and_never_invents_pairs():

@@ -12,6 +12,7 @@ from src.experiment_platform.timeseries import (
     classify_historical_calibration,
     duration_power_status,
     build_business_interpretation,
+    build_timeseries_preview,
     detect_frequency,
     fit_bsts_model,
     infer_timeseries_columns,
@@ -39,6 +40,17 @@ def test_timeseries_schema_and_frequency_detection():
     frequency, missing = detect_frequency(prepared)
     assert frequency == "Weekly"
     assert missing == 0
+
+
+def test_timeseries_preview_summarizes_campaign_context():
+    raw = time_series_campaign()
+    preview = build_timeseries_preview(raw, "date", "applications", "campaign_flag")
+    assert preview["frequency"] == "Weekly"
+    assert preview["missing_periods"] == 0
+    assert preview["campaign_launch"] == pd.Timestamp("2025-07-06")
+    assert preview["pre_observations"] > preview["post_observations"] > 0
+    assert "website_traffic" in preview["predictors"]
+    assert "marketing_spend" not in preview["predictors"]
 
 
 def test_monthly_data_uses_monthly_planning_cadence():

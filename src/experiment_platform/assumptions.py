@@ -186,6 +186,7 @@ def design_neyman_allocation(
     arm_stats_by_role: dict[str, pd.DataFrame],
     control: float,
     treatments: list[float],
+    family_comparisons: int | None = None,
 ) -> tuple[int, str, list[dict], list[dict]]:
     """Solve a generalized Neyman allocation for a shared-control multi-arm design."""
     arms = [float(control)] + [float(value) for value in treatments]
@@ -194,15 +195,19 @@ def design_neyman_allocation(
     missing = [arm for arm, row in primary_rows.items() if row is None]
     if missing:
         formatted = ", ".join(f"{value:,.0f}" for value in missing)
-        raise ValueError(f"Primary metric historical support is unavailable for: {formatted}.")
+        raise ValueError(
+            f"Primary metric historical support is unavailable for: {formatted}. "
+            "Increase the historical matching distance, choose better-supported values, or provide more history."
+        )
 
-    comparison_count = max(len(treatments), 1)
+    shared_control_comparisons = max(len(treatments), 1)
+    comparison_count = max(int(family_comparisons or shared_control_comparisons), 1)
     raw_weights = {}
     for arm, row in primary_rows.items():
         sd = float(row["Historical SD"])
         if not math.isfinite(sd) or sd <= 0:
             raise ValueError(f"Primary metric historical SD is unavailable for {arm:,.0f}.")
-        raw_weights[arm] = sd * (math.sqrt(comparison_count) if arm == float(control) else 1.0)
+        raw_weights[arm] = sd * (math.sqrt(shared_control_comparisons) if arm == float(control) else 1.0)
     weight_total = sum(raw_weights.values())
     weights = {arm: weight / weight_total for arm, weight in raw_weights.items()}
     planning_alpha = adjusted_alpha(design.alpha, comparison_count, design.multiplicity_method)

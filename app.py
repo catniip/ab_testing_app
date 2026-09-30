@@ -5,6 +5,7 @@ import math
 import numpy as np
 import pandas as pd
 import streamlit as st
+from dataclasses import asdict, fields
 from datetime import datetime
 
 from src.experiment_platform.analysis import analysis_integrity_summary, binary_results, continuous_results, response_summary, validate_analysis_data
@@ -19,20 +20,21 @@ from src.experiment_platform.assumptions import (
     validate_metric_assumptions,
 )
 from src.experiment_platform.arm_selection import suggest_numeric_designs, validate_categorical_strategy, validate_numeric_strategy
-from src.experiment_platform.charts import bsts_counterfactual_chart, cumulative_impact_chart, customer_category_bar, customer_group_summary_chart, customer_history_coverage, customer_metric_distribution, customer_option_chart, customer_required_accounts_chart, customer_strategy_outcome_chart, customer_traffic_allocation_chart, detectable_effect_curve, forest_plot, geo_balance_chart, geo_dma_map, geo_trend_chart, historical_association, impact_chart, pre_post_bar, response_plot, time_series_line, timeseries_chart_context
-from src.experiment_platform.customer_planning import assign_group_labels, calculate_group_design, calculate_variant_group_design, default_numeric_groups, suggest_group_designs
+from src.experiment_platform.charts import bsts_counterfactual_chart, cumulative_impact_chart, customer_allocation_health_chart, customer_category_bar, customer_decision_map, customer_design_tradeoff_chart, customer_group_summary_chart, customer_history_coverage, customer_metric_distribution, customer_option_chart, customer_required_accounts_chart, customer_rollout_impact_chart, customer_strategy_outcome_chart, customer_traffic_allocation_chart, detectable_effect_curve, forest_plot, geo_balance_chart, geo_dma_map, geo_trend_chart, historical_association, impact_chart, portfolio_value_chart, pre_post_bar, response_plot, time_series_line, timeseries_chart_context
+from src.experiment_platform.customer_planning import assign_group_labels, build_customer_preview, calculate_group_design, calculate_variant_group_design, default_numeric_groups, planning_comparison_count, suggest_group_designs
 from src.experiment_platform.customer_templates import apply_customer_template
 from src.experiment_platform.data_access import CUSTOMER_DEMO_SCENARIOS, load_customer_demo, load_geo_demo, load_raw_demo, load_results_demo, load_timeseries_demo, load_timeseries_planning_demo, load_uploaded_csv
 from src.experiment_platform.data_validation import data_quality_warnings, date_like_columns, first_series, infer_column, infer_mob_column, normalize_uploaded_dataset, safe_numeric_series
-from src.experiment_platform.decision import arm_decision_scorecard, experiment_recommendation, guardrail_status, recommendation_status
+from src.experiment_platform.decision import arm_decision_scorecard, experiment_recommendation, guardrail_status, project_rollout_impact, recommendation_status
 from src.experiment_platform.formatting import money, number, p_value, percent
-from src.experiment_platform.geography import DMA_CENTROIDS, GeoConfig, aggregate_trend, evaluate_geo_balance, infer_geo_schema, leave_one_dma_out, plan_geo_test, prepare_geo_analysis, prepare_geo_panel, run_panel_did, run_placebo_tests, validate_fixed_assignment, validate_geo_panel
+from src.experiment_platform.geography import DMA_CENTROIDS, GeoConfig, aggregate_trend, build_geo_preview, evaluate_geo_balance, infer_geo_schema, leave_one_dma_out, plan_geo_test, prepare_geo_analysis, prepare_geo_panel, run_panel_did, run_placebo_tests, validate_fixed_assignment, validate_geo_panel
 from src.experiment_platform.historical_strategy import fixed_unit_values, historical_arm_statistics, validate_fixed_unit_value
 from src.experiment_platform.metrics import column_schema, metric_baseline, suggest_metric_type, validate_metric
 from src.experiment_platform.models import AnalysisConfig, DataConfig, DataMappingConfig, DesignConfig, MetricConfig, PopulationConfig, StrategyConfig
 from src.experiment_platform.power import adjusted_alpha, detectable_effect_binary, detectable_effect_continuous, detectable_effect_continuous_unequal, duration, power_binary, power_continuous, power_continuous_unequal, sample_size_binary, sample_size_continuous
+from src.experiment_platform.portfolio import PORTFOLIO_STATUSES, build_rollout_plan, business_report_html, duplicate_experiment, freeze_decision_snapshot, load_experiments, portfolio_summary, pulse_summary, save_configuration, upsert_experiment, value_timeline
 from src.experiment_platform.raw_processing import build_analysis_dataset
-from src.experiment_platform.timeseries import TimeSeriesConfig, build_business_interpretation, campaign_decision_date, classify_calibration, config_fingerprint, data_fingerprint, detect_frequency, duplicate_timestamp_count, duration_power_status, fit_bsts_model, humanize_column_name, incremental_outcome_label, infer_timeseries_columns, method_config_fingerprint, planning_config_fingerprint, planning_durations, prepare_timeseries_data, predictor_candidates, probability_positive_label, projected_operational_exposure, run_duration_power_simulation, run_pre_post_analysis
+from src.experiment_platform.timeseries import TimeSeriesConfig, build_business_interpretation, build_timeseries_preview, campaign_decision_date, classify_calibration, config_fingerprint, data_fingerprint, detect_frequency, duplicate_timestamp_count, duration_power_status, fit_bsts_model, humanize_column_name, incremental_outcome_label, infer_timeseries_columns, method_config_fingerprint, planning_config_fingerprint, planning_durations, prepare_timeseries_data, predictor_candidates, probability_positive_label, projected_operational_exposure, run_duration_power_simulation, run_pre_post_analysis
 
 
 st.set_page_config(page_title="Experiment Platform", layout="wide")
@@ -114,10 +116,35 @@ st.markdown(
     .customer-product-mark {display:grid; place-items:center; width:34px; height:34px; border:1px solid #f1b8b8; border-radius:6px; background:#fff1f1; color:#cf3737; font-size:.72rem; font-weight:850;}
     .customer-product-name {font-size:.9rem; font-weight:760; color:var(--ink);}
     .customer-product-context {font-size:.7rem; color:#7b8595; margin-top:.05rem;}
-    .customer-page-heading {position:relative; padding:.75rem 0 1rem; border-bottom:1px solid var(--line); margin-bottom:1.1rem;}
+    .customer-page-heading {position:relative; padding:.75rem 0 1rem; border-bottom:1px solid var(--line); margin-bottom:.7rem;}
     .customer-page-heading:after {content:""; position:absolute; left:0; bottom:-1px; width:82px; height:3px; background:var(--coral);}
     .customer-page-heading h1 {font-size:2rem; margin:0 0 .28rem;}
     .customer-page-heading p {font-size:.9rem; margin:0; color:#647084;}
+    .customer-demo-actions {display:flex; align-items:center; justify-content:space-between; gap:1rem; margin:.2rem 0 .45rem;}
+    .customer-demo-actions strong {font-size:.86rem; color:var(--ink);}
+    .customer-demo-actions span {display:block; margin-top:.08rem; font-size:.74rem; color:#737d8e;}
+    .customer-preview-summary {min-height:402px; border:1px solid var(--line); border-top:4px solid var(--coral); border-radius:7px; background:#fff; overflow:hidden; box-shadow:0 7px 22px rgba(35,41,54,.06);}
+    .customer-preview-summary h3 {font-size:.96rem; margin:0; padding:.9rem 1rem .72rem; border-bottom:1px solid #edf0f4;}
+    .customer-preview-grid {display:grid; grid-template-columns:repeat(2,minmax(0,1fr));}
+    .customer-preview-stat {min-height:94px; padding:.82rem 1rem; border-bottom:1px solid #edf0f4;}
+    .customer-preview-stat:nth-child(even) {border-left:1px solid #edf0f4;}
+    .customer-preview-label {font-size:.67rem; color:#7a8495; font-weight:750; text-transform:uppercase; margin-bottom:.28rem;}
+    .customer-preview-value {font-size:1.02rem; line-height:1.25; color:var(--ink); font-weight:760; overflow-wrap:anywhere;}
+    .customer-preview-detail {font-size:.7rem; color:#727d8f; margin-top:.2rem;}
+    .customer-mix {padding:.72rem 1rem .55rem;}
+    .customer-mix-title {display:flex; justify-content:space-between; gap:.5rem; font-size:.7rem; color:#5e697a; margin-bottom:.36rem;}
+    .customer-mix-row {display:grid; grid-template-columns:74px 1fr 28px; gap:.5rem; align-items:center; margin:.32rem 0; font-size:.68rem; color:#687386;}
+    .customer-mix-track {height:7px; background:#edf0f4; border-radius:3px; overflow:hidden;}
+    .customer-mix-fill {height:100%; background:#2457a6;}
+    .customer-mix-row:nth-child(3) .customer-mix-fill {background:#ef4d4d;}
+    .customer-mix-row:nth-child(4) .customer-mix-fill {background:#d69a1f;}
+    .customer-preview-note {margin:.25rem 1rem .85rem; padding:.6rem .72rem; border-left:3px solid var(--coral); background:#fff5f5; color:#5d6572; font-size:.7rem; line-height:1.42;}
+    .customer-section-heading {display:flex; align-items:flex-end; justify-content:space-between; gap:1rem; margin:1.15rem 0 .48rem;}
+    .customer-section-heading strong {font-size:.96rem; color:var(--ink);}
+    .customer-section-heading span {font-size:.72rem; color:#778194;}
+    .st-key-customer_demo_plan button {background:var(--coral) !important; border-color:var(--coral) !important; color:#fff !important; font-weight:700;}
+    .st-key-customer_demo_plan button p, .st-key-customer_demo_analyze button p {color:#fff !important;}
+    .st-key-customer_demo_analyze button {background:var(--teal) !important; border-color:var(--teal) !important; color:#fff !important; font-weight:700;}
     .customer-choice-v2 {display:grid; grid-template-columns:56px 1fr; column-gap:1rem; min-height:156px; border:1px solid #efb5b5; border-radius:7px; padding:1.2rem 1.25rem; background:#fff8f8; box-shadow:0 7px 22px rgba(35,41,54,.06);}
     .customer-choice-v2.analysis {border-color:#a8d2ca; background:#f6fbfa;}
     .customer-choice-icon {grid-row:1 / span 3; display:grid; place-items:center; align-self:start; width:52px; height:52px; border-radius:6px; background:#ffdada; color:#bb2f2f; font-size:1rem; font-weight:850;}
@@ -157,10 +184,35 @@ st.markdown(
     .ts-product-mark {display:grid; place-items:center; width:34px; height:34px; border:1px solid #ead28c; border-radius:6px; background:#fff7dc; color:#8d6505; font-size:.72rem; font-weight:850;}
     .ts-product-name {font-size:.9rem; font-weight:760; color:var(--ink);}
     .ts-product-context {font-size:.7rem; color:#7b8595; margin-top:.05rem;}
-    .ts-page-heading {position:relative; padding:.75rem 0 1rem; border-bottom:1px solid var(--line); margin-bottom:1.1rem;}
+    .ts-page-heading {position:relative; padding:.75rem 0 1rem; border-bottom:1px solid var(--line); margin-bottom:.7rem;}
     .ts-page-heading:after {content:""; position:absolute; left:0; bottom:-1px; width:82px; height:3px; background:var(--gold);}
     .ts-page-heading h1 {font-size:2rem; margin:0 0 .28rem;}
     .ts-page-heading p {font-size:.9rem; margin:0; color:#647084;}
+    .ts-demo-actions {display:flex; align-items:center; justify-content:space-between; gap:1rem; margin:.2rem 0 .45rem;}
+    .ts-demo-actions strong {font-size:.86rem; color:var(--ink);}
+    .ts-demo-actions span {display:block; margin-top:.08rem; font-size:.74rem; color:#737d8e;}
+    .ts-preview-summary {min-height:422px; border:1px solid var(--line); border-top:4px solid var(--gold); border-radius:7px; background:#fff; overflow:hidden; box-shadow:0 7px 22px rgba(35,41,54,.06);}
+    .ts-preview-summary h3 {font-size:.96rem; margin:0; padding:.9rem 1rem .72rem; border-bottom:1px solid #edf0f4;}
+    .ts-preview-grid {display:grid; grid-template-columns:repeat(2,minmax(0,1fr));}
+    .ts-preview-stat {min-height:94px; padding:.82rem 1rem; border-bottom:1px solid #edf0f4;}
+    .ts-preview-stat:nth-child(even) {border-left:1px solid #edf0f4;}
+    .ts-preview-label {font-size:.67rem; color:#7a8495; font-weight:750; text-transform:uppercase; margin-bottom:.28rem;}
+    .ts-preview-value {font-size:1.02rem; line-height:1.25; color:var(--ink); font-weight:760; overflow-wrap:anywhere;}
+    .ts-preview-detail {font-size:.7rem; color:#727d8f; margin-top:.2rem;}
+    .ts-period-split {padding:.82rem 1rem .72rem;}
+    .ts-period-row {display:flex; align-items:center; justify-content:space-between; gap:.6rem; font-size:.72rem; color:#5e697a; margin-bottom:.45rem;}
+    .ts-period-track {display:flex; width:100%; height:9px; background:#edf0f4; overflow:hidden; border-radius:3px;}
+    .ts-period-pre {height:100%; background:#2457a6;}
+    .ts-period-post {height:100%; background:#ef4d4d;}
+    .ts-period-legend {display:flex; justify-content:space-between; margin-top:.38rem; font-size:.68rem; color:#778194;}
+    .ts-preview-note {margin:.25rem 1rem .9rem; padding:.65rem .72rem; border-left:3px solid var(--gold); background:#fffaf0; color:#5d6572; font-size:.72rem; line-height:1.42;}
+    .ts-section-heading {display:flex; align-items:flex-end; justify-content:space-between; gap:1rem; margin:1.15rem 0 .48rem;}
+    .ts-section-heading strong {font-size:.96rem; color:var(--ink);}
+    .ts-section-heading span {font-size:.72rem; color:#778194;}
+    .st-key-ts_demo_plan button {background:var(--gold) !important; border-color:var(--gold) !important; color:#fff !important; font-weight:700;}
+    .st-key-ts_demo_plan button p, .st-key-ts_demo_analyze button p {color:#fff !important;}
+    .st-key-ts_demo_analyze button {background:var(--teal) !important; border-color:var(--teal) !important; color:#fff !important; font-weight:700;}
+    .ts-data-preview-note {font-size:.74rem; color:#697386; margin:-.2rem 0 .5rem;}
     .ts-choice {display:grid; grid-template-columns:56px 1fr; column-gap:1rem; min-height:156px; border:1px solid #e5ca79; border-radius:7px; padding:1.2rem 1.25rem; background:#fffdf7; box-shadow:0 7px 22px rgba(35,41,54,.06);}
     .ts-choice.analysis {border-color:#a8d2ca; background:#f6fbfa;}
     .ts-choice-icon {grid-row:1 / span 3; display:grid; place-items:center; align-self:start; width:52px; height:52px; border-radius:6px; background:#f5df9d; color:#815b00; font-size:1rem; font-weight:850;}
@@ -223,9 +275,34 @@ st.markdown(
     .geo-product-mark {display:grid; place-items:center; width:34px; height:34px; border:1px solid #bfd8d1; border-radius:6px; background:#eef8f5; color:var(--teal); font-size:.78rem; font-weight:850;}
     .geo-product-name {font-size:.9rem; font-weight:760; color:var(--ink);}
     .geo-product-context {font-size:.7rem; color:#7b8595; margin-top:.05rem;}
-    .geo-page-heading {padding:.75rem 0 1rem; border-bottom:1px solid var(--line); margin-bottom:1.1rem;}
+    .geo-page-heading {position:relative; padding:.75rem 0 1rem; border-bottom:1px solid var(--line); margin-bottom:.7rem;}
+    .geo-page-heading:after {content:""; position:absolute; left:0; bottom:-1px; width:96px; height:3px; background:var(--teal);}
     .geo-page-heading h1 {font-size:2rem; margin:0 0 .28rem;}
     .geo-page-heading p {font-size:.9rem; margin:0; color:#647084;}
+    .geo-demo-actions {display:flex; align-items:center; justify-content:space-between; gap:1rem; margin:.2rem 0 .45rem;}
+    .geo-demo-actions strong {font-size:.86rem; color:var(--ink);}
+    .geo-demo-actions span {display:block; margin-top:.08rem; font-size:.74rem; color:#737d8e;}
+    .geo-preview-summary {min-height:422px; border:1px solid var(--line); border-top:4px solid var(--teal); border-radius:7px; background:#fff; overflow:hidden; box-shadow:0 7px 22px rgba(35,41,54,.06);}
+    .geo-preview-summary h3 {font-size:.96rem; margin:0; padding:.9rem 1rem .72rem; border-bottom:1px solid #edf0f4;}
+    .geo-preview-grid {display:grid; grid-template-columns:repeat(2,minmax(0,1fr));}
+    .geo-preview-stat {min-height:94px; padding:.82rem 1rem; border-bottom:1px solid #edf0f4;}
+    .geo-preview-stat:nth-child(even) {border-left:1px solid #edf0f4;}
+    .geo-preview-label {font-size:.67rem; color:#7a8495; font-weight:750; text-transform:uppercase; margin-bottom:.28rem;}
+    .geo-preview-value {font-size:1.02rem; line-height:1.25; color:var(--ink); font-weight:760; overflow-wrap:anywhere;}
+    .geo-preview-detail {font-size:.7rem; color:#727d8f; margin-top:.2rem;}
+    .geo-assignment-bars {padding:.82rem 1rem .72rem;}
+    .geo-assignment-row {display:grid; grid-template-columns:58px 1fr 24px; gap:.55rem; align-items:center; margin:.42rem 0; font-size:.72rem; color:#5e697a;}
+    .geo-assignment-track {height:7px; background:#edf0f4; overflow:hidden; border-radius:3px;}
+    .geo-assignment-fill {height:100%; background:#ef4d4d;}
+    .geo-assignment-fill.control {background:#2457a6;}
+    .geo-preview-note {margin:.25rem 1rem .9rem; padding:.65rem .72rem; border-left:3px solid var(--gold); background:#fffaf0; color:#5d6572; font-size:.72rem; line-height:1.42;}
+    .geo-section-heading {display:flex; align-items:flex-end; justify-content:space-between; gap:1rem; margin:1.15rem 0 .48rem;}
+    .geo-section-heading strong {font-size:.96rem; color:var(--ink);}
+    .geo-section-heading span {font-size:.72rem; color:#778194;}
+    .st-key-geo_demo_plan button {background:#d69a1f !important; border-color:#d69a1f !important; color:#fff !important; font-weight:700;}
+    .st-key-geo_demo_plan button p, .st-key-geo_demo_analyze button p {color:#fff !important;}
+    .st-key-geo_demo_analyze button {background:#16856b !important; border-color:#16856b !important; color:#fff !important; font-weight:700;}
+    .geo-data-preview-note {font-size:.74rem; color:#697386; margin:-.2rem 0 .5rem;}
     .geo-entry-note {font-size:.75rem; color:#697386; text-align:center; margin:.65rem 0 0;}
     .geo-choice-v2 {display:grid; grid-template-columns:56px 1fr; column-gap:1rem; min-height:156px; border:1px solid #e1c778; border-radius:7px; padding:1.2rem 1.25rem; background:#fffdf7; box-shadow:0 7px 22px rgba(35,41,54,.06);}
     .geo-choice-v2.analysis {border-color:#a8d2ca; background:#f6fbfa;}
@@ -290,8 +367,78 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+st.markdown(
+    """
+    <style>
+    .command-header {display:flex; align-items:flex-end; justify-content:space-between; gap:2rem; margin:.2rem 0 1rem;}
+    .command-header h1 {font-size:2rem; margin:0 0 .22rem;}
+    .command-header p {margin:0; font-size:.9rem; color:#657084;}
+    .command-kpis {display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); border:1px solid var(--line); border-radius:7px; background:#fff; margin-bottom:1rem; overflow:hidden;}
+    .command-kpi {position:relative; padding:.8rem 1rem .78rem 3.25rem; min-height:72px;}
+    .command-kpi + .command-kpi {border-left:1px solid var(--line);}
+    .command-kpi-icon {position:absolute; left:1rem; top:1rem; display:grid; place-items:center; width:30px; height:30px; border-radius:50%; background:#e8f6f2; color:var(--teal); font-weight:850; font-size:.76rem;}
+    .command-kpi-icon.ready {background:#fff4dd; color:#ad7200;}
+    .command-kpi-icon.value {background:#fff0ef; color:#d73d3d;}
+    .command-kpi-value {font-size:1.3rem; line-height:1.1; font-weight:780; color:var(--ink);}
+    .command-kpi-label {font-size:.74rem; color:#697386; margin-top:.18rem;}
+    .command-section-head {display:flex; align-items:baseline; gap:.65rem; margin:.85rem 0 .55rem;}
+    .command-section-head strong {font-size:.98rem; color:var(--ink);}
+    .command-section-head span {font-size:.72rem; color:#7a8495;}
+    .lifecycle-rail {display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); border:1px solid var(--line); border-radius:7px; background:#fff; padding:.8rem .65rem .75rem; margin-bottom:1rem;}
+    .lifecycle-stage {position:relative; text-align:center; min-width:0;}
+    .lifecycle-stage:before {content:""; position:absolute; left:0; right:0; top:27px; height:2px; background:#dfe4ec;}
+    .lifecycle-stage:first-child:before {left:50%;}
+    .lifecycle-stage:last-child:before {right:50%;}
+    .lifecycle-name {height:20px; font-size:.68rem; font-weight:720; color:#465164; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+    .lifecycle-count {position:relative; z-index:1; display:grid; place-items:center; width:25px; height:25px; margin:.25rem auto .4rem; border-radius:50%; background:#fff; border:2px solid #aeb8c7; color:#596476; font-size:.68rem; font-weight:800;}
+    .lifecycle-stage.active .lifecycle-count {background:var(--teal); border-color:var(--teal); color:#fff; box-shadow:0 0 0 4px #e8f6f2;}
+    .lifecycle-stage.ready .lifecycle-count {background:var(--gold); border-color:var(--gold); color:#fff; box-shadow:0 0 0 4px #fff4dd;}
+    .lifecycle-example {height:28px; padding:0 .25rem; font-size:.66rem; line-height:1.25; color:#778194; overflow:hidden;}
+    .attention-list {border:1px solid var(--line); border-radius:7px; background:#fff; overflow:hidden;}
+    .attention-item {padding:.68rem .78rem; border-left:3px solid var(--gold);}
+    .attention-item + .attention-item {border-top:1px solid #edf0f4;}
+    .attention-item b {display:block; font-size:.77rem; color:var(--ink); margin-bottom:.12rem;}
+    .attention-item span {display:block; font-size:.68rem; line-height:1.35; color:#727d8f;}
+    .command-empty {padding:.9rem; font-size:.76rem; color:#697386; border:1px solid var(--line); border-radius:7px; background:#fff;}
+    .experiment-detail-head {display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.25rem 0 .75rem; border-bottom:1px solid #edf0f4; margin-bottom:.8rem;}
+    .experiment-detail-head strong {display:block; font-size:1rem; color:var(--ink);}
+    .experiment-detail-head span {font-size:.72rem; color:#737d8e;}
+    .pulse-row {display:grid; grid-template-columns:160px 1fr 62px; align-items:center; gap:.65rem; margin:.55rem 0;}
+    .pulse-row span {font-size:.74rem; color:#596476;}
+    .pulse-track {height:7px; border-radius:4px; background:#e8ecf2; overflow:hidden;}
+    .pulse-fill {height:100%; background:var(--teal); border-radius:4px;}
+    .pulse-fill.warn {background:var(--gold);}
+    .pulse-value {text-align:right; font-size:.72rem; font-weight:720; color:var(--ink);}
+    .pulse-summary {display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); border:1px solid var(--line); border-radius:6px; margin:.2rem 0 .85rem; background:#fff;}
+    .pulse-summary-item {padding:.65rem .72rem; min-width:0;}
+    .pulse-summary-item + .pulse-summary-item {border-left:1px solid var(--line);}
+    .pulse-summary-item span {display:block; font-size:.63rem; color:#7a8495; text-transform:uppercase; font-weight:720;}
+    .pulse-summary-item b {display:block; margin-top:.18rem; color:var(--ink); font-size:.8rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+    .allocation-row {display:grid; grid-template-columns:150px 1fr 86px; align-items:center; gap:.65rem; margin:.5rem 0;}
+    .allocation-row span {font-size:.72rem; color:#596476; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+    .allocation-track {position:relative; height:10px; background:#e8ecf2; border-radius:5px; overflow:visible;}
+    .allocation-fill {height:100%; background:#2457a6; border-radius:5px;}
+    .allocation-plan {position:absolute; top:-3px; bottom:-3px; width:2px; background:#ef4d4d;}
+    .allocation-row b {font-size:.7rem; color:var(--ink); text-align:right;}
+    .interim-note {border-left:4px solid #7891b3; background:#f6f8fb; padding:.65rem .75rem; margin:.7rem 0; font-size:.72rem; line-height:1.4; color:#566174;}
+    .record-version {display:inline-block; border:1px solid #dce2eb; border-radius:4px; padding:.2rem .42rem; font-size:.67rem; font-weight:720; color:#596476; background:#f8f9fb;}
+    .decision-feed {border-top:1px solid #edf0f4;}
+    .decision-feed-row {display:grid; grid-template-columns:12px 1fr auto; gap:.55rem; align-items:start; padding:.62rem 0; border-bottom:1px solid #edf0f4;}
+    .decision-dot {width:8px; height:8px; margin-top:.25rem; border-radius:50%; background:var(--teal);}
+    .decision-feed-row b {display:block; font-size:.74rem; color:var(--ink);}
+    .decision-feed-row span {display:block; font-size:.67rem; color:#7a8495; margin-top:.08rem;}
+    .decision-feed-row time {font-size:.65rem; color:#8a94a5; white-space:nowrap;}
+    div[data-testid="stButton"] button {white-space:nowrap;}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 def init_state() -> None:
+    st.session_state.setdefault("portfolio_selected_id", "")
+    st.session_state.setdefault("active_portfolio_id", "")
+    st.session_state.setdefault("portfolio_show_create", False)
     st.session_state.setdefault("experiment_name", "New Customer Experiment")
     st.session_state.setdefault("data_config", DataConfig())
     st.session_state.setdefault("strategy_config", StrategyConfig())
@@ -355,6 +502,7 @@ def init_state() -> None:
         st.session_state.customer_general_workspace_v1 = True
     for field_name, default in {
         "multiplicity_method": "Holm",
+        "audience_decision_scope": "Separate decision per audience",
         "attrition_rate": 0.0,
         "planned_launch_date": "",
         "outcome_delay_value": 0,
@@ -651,6 +799,9 @@ def sync_group_settings(data: pd.DataFrame) -> None:
         maximum = float(lines.max()) if not lines.empty else overall_max
         control = float(lines.median()) if not lines.empty else (minimum + maximum) / 2
         previous = population.group_settings.get(group, {})
+        strategy_signature = (strategy.strategy_type, strategy.historical_column)
+        if tuple(previous.get("_strategy_signature", ())) != strategy_signature:
+            previous = {}
         updated[group] = {
             "min_line": float(previous.get("min_line", minimum)),
             "max_line": float(previous.get("max_line", maximum)),
@@ -660,6 +811,7 @@ def sync_group_settings(data: pd.DataFrame) -> None:
             "selection_mode": str(previous.get("selection_mode", "Suggested lines")),
             "control_arm": previous.get("control_arm", strategy.categorical_control),
             "treatment_arms": list(previous.get("treatment_arms", strategy.categorical_treatments)),
+            "_strategy_signature": strategy_signature,
         }
     population.group_settings = updated
 
@@ -890,75 +1042,525 @@ def open_workspace(page: str) -> None:
     st.session_state.main_page = page
 
 
+def compact_money(value: float) -> str:
+    if abs(value) >= 1_000_000:
+        return f"${value / 1_000_000:.1f}M"
+    if abs(value) >= 1_000:
+        return f"${value / 1_000:.0f}K"
+    return f"${value:,.0f}"
+
+
+def _restore_dataclass(target: object, payload: dict) -> object:
+    allowed = {item.name for item in fields(target)}
+    for key, value in payload.items():
+        if key in allowed:
+            setattr(target, key, value)
+    return target
+
+
+def workspace_configuration(experiment_type: str) -> dict:
+    if experiment_type == "Customer":
+        return {
+            "data_config": asdict(st.session_state.data_config),
+            "data_mapping": asdict(st.session_state.data_mapping),
+            "population_config": asdict(st.session_state.population_config),
+            "strategy_config": asdict(st.session_state.strategy_config),
+            "design_config": asdict(st.session_state.design_config),
+            "analysis_config": asdict(st.session_state.analysis_config),
+            "metrics_config": {role: asdict(metric) for role, metric in st.session_state.metrics_config.items()},
+        }
+    if experiment_type == "Geography":
+        return {"geo_config": asdict(st.session_state.geo_config)}
+    return {"ts_config": asdict(st.session_state.ts_config)}
+
+
+def workspace_result_summary(experiment_type: str) -> dict:
+    if experiment_type == "Customer":
+        primary = st.session_state.analysis_results_by_role.get("Primary")
+        if primary is None or primary.empty or not st.session_state.get("customer_analysis_is_current"):
+            return {}
+        treatments = primary[~primary["Is Control"]].copy()
+        if treatments.empty:
+            return {"headline": "Customer analysis completed", "confidence": "No treatment comparison available"}
+        direction = st.session_state.metrics_config["Primary"].direction
+        ordered = treatments.sort_values("Effect vs Control", ascending=direction == "Lower is Better")
+        leader = ordered.iloc[0]
+        lift = leader.get("Relative Lift", float("nan"))
+        headline = f'{leader["Credit Line"]} is the leading tested option'
+        if pd.notna(lift):
+            headline += f" at {lift:+.1%} versus control"
+        return {
+            "headline": headline,
+            "confidence": str(leader.get("Result", "Analysis complete")),
+            "leading_option": str(leader["Credit Line"]),
+            "relative_lift": None if pd.isna(lift) else float(lift),
+        }
+    if experiment_type == "Geography":
+        result = st.session_state.get("geo_analysis")
+        if not result:
+            return {}
+        return {
+            "headline": f'Estimated geographic lift: {float(result.get("lift", 0)):+.1%}',
+            "confidence": "Geographic analysis complete",
+            "incremental_volume": float(result.get("incremental_volume", 0)),
+        }
+    cfg: TimeSeriesConfig = st.session_state.ts_config
+    result = st.session_state.get("ts_bsts_result") if cfg.analysis_method == "Structural Time Series Counterfactual" else st.session_state.get("ts_prepost_result")
+    if not result:
+        return {}
+    if cfg.analysis_method == "Structural Time Series Counterfactual":
+        return {
+            "headline": f'Estimated incremental impact: {float(result.get("cumulative_impact", 0)):+,.0f}',
+            "confidence": f'Model reliability: {result.get("reliability", "Review")}',
+            "relative_impact": float(result.get("relative_impact", 0)),
+        }
+    return {
+        "headline": f'Observed pre–post change: {float(result.get("percent_change", 0)):+.1%}',
+        "confidence": "Descriptive result; not a causal estimate",
+    }
+
+
+def save_current_workspace(experiment_type: str) -> dict:
+    experiments = load_experiments()
+    active_id = st.session_state.get("active_portfolio_id", "")
+    existing = next((item for item in experiments if item["id"] == active_id and item["type"] == experiment_type), None)
+    if existing is None:
+        existing = {
+            "name": st.session_state.experiment_name if experiment_type == "Customer" else f"New {experiment_type} Experiment",
+            "type": experiment_type,
+            "owner": "Unassigned",
+            "primary_outcome": "Primary outcome",
+        }
+    record = save_configuration(existing, workspace_configuration(experiment_type))
+    result = workspace_result_summary(experiment_type)
+    now = datetime.now().isoformat(timespec="seconds")
+    if experiment_type == "Customer":
+        design: DesignConfig = st.session_state.design_config
+        primary = st.session_state.metrics_config.get("Primary")
+        result_frame = st.session_state.analysis_results_by_role.get("Primary")
+        sample_collected = int(result_frame["N"].sum()) if result_frame is not None and not result_frame.empty else 0
+        sample_target = int(design.total_sample_size or sum(design.arm_sample_sizes.values()))
+        planned = design.arm_sample_sizes
+        observed = result_frame.set_index("Credit Line")["N"].to_dict() if result_frame is not None and not result_frame.empty else {}
+        all_arms = list(dict.fromkeys([*planned, *observed]))
+        planned_total = max(sum(planned.values()), 1)
+        observed_total = max(sum(observed.values()), 1)
+        record.update(
+            {
+                "name": st.session_state.experiment_name,
+                "primary_outcome": primary.name if primary else "Primary outcome",
+                "planned_launch_date": design.planned_launch_date or record.get("planned_launch_date", ""),
+                "sample_collected": sample_collected,
+                "sample_target": sample_target,
+                "traffic_per_period": int(design.eligible_customers),
+                "traffic_frequency": duration_unit(design.traffic_frequency),
+                "allocation": [
+                    {
+                        "arm": str(arm),
+                        "observed_pct": 100 * float(observed.get(arm, 0)) / observed_total,
+                        "planned_pct": 100 * float(planned.get(arm, 0)) / planned_total,
+                    }
+                    for arm in all_arms
+                ],
+            }
+        )
+    elif experiment_type == "Geography":
+        cfg: GeoConfig = st.session_state.geo_config
+        assignment = st.session_state.geo_assignment
+        target = int(st.session_state.geo_plan.get("required_total_dmas", 0)) if st.session_state.geo_plan else 0
+        observed = assignment["Group"].value_counts().to_dict() if assignment is not None and not assignment.empty and "Group" in assignment else {}
+        total = max(sum(observed.values()), 1)
+        record.update(
+            {
+                "primary_outcome": humanize_column_name(cfg.outcome_column) if cfg.outcome_column else record.get("primary_outcome", "Primary outcome"),
+                "planned_launch_date": cfg.planned_launch_date or record.get("planned_launch_date", ""),
+                "sample_collected": int(sum(observed.values())),
+                "sample_target": target,
+                "traffic_per_period": 0,
+                "traffic_frequency": "markets",
+                "allocation": [{"arm": str(arm), "observed_pct": 100 * count / total, "planned_pct": 50.0} for arm, count in observed.items()],
+            }
+        )
+    else:
+        cfg: TimeSeriesConfig = st.session_state.ts_config
+        plan = st.session_state.get("ts_duration_plan") or {}
+        target = int(plan.get("recommended_duration") or 0)
+        prepared = st.session_state.get("ts_prepared_df")
+        collected = 0
+        if prepared is not None and not prepared.empty and cfg.intervention_date:
+            collected = int((pd.to_datetime(prepared["_date"]) >= pd.Timestamp(cfg.intervention_date)).sum())
+        record.update(
+            {
+                "primary_outcome": humanize_column_name(cfg.outcome_column) if cfg.outcome_column else record.get("primary_outcome", "Primary outcome"),
+                "planned_launch_date": cfg.planned_launch_date or cfg.intervention_date or record.get("planned_launch_date", ""),
+                "sample_collected": collected,
+                "sample_target": target,
+                "traffic_per_period": 1,
+                "traffic_frequency": f'{cfg.frequency.lower()} observation' if cfg.frequency != "Auto" else "observation period",
+                "allocation": [],
+            }
+        )
+    record["data_updated_at"] = now
+    if result:
+        record["latest_result"] = result
+        record["analysis_timestamp"] = now
+        record["status"] = "Ready to decide"
+        record["progress"] = 100
+        record["action"] = "Review and decide"
+        record["primary_direction"] = result.get("headline", "Analysis complete")
+    else:
+        record.setdefault("status", "Planning")
+        target = max(int(record.get("sample_target", 0)), 0)
+        collected = max(int(record.get("sample_collected", 0)), 0)
+        record["progress"] = min(int(100 * collected / target), 99) if target else int(record.get("progress", 15))
+    saved = upsert_experiment(record)
+    st.session_state.active_portfolio_id = saved["id"]
+    st.session_state.portfolio_selected_id = saved["id"]
+    return saved
+
+
+def restore_portfolio_experiment(experiment: dict) -> None:
+    payload = experiment.get("config_payload") or {}
+    if experiment["type"] == "Customer" and payload:
+        _restore_dataclass(st.session_state.data_config, payload.get("data_config", {}))
+        _restore_dataclass(st.session_state.data_mapping, payload.get("data_mapping", {}))
+        _restore_dataclass(st.session_state.population_config, payload.get("population_config", {}))
+        _restore_dataclass(st.session_state.strategy_config, payload.get("strategy_config", {}))
+        _restore_dataclass(st.session_state.design_config, payload.get("design_config", {}))
+        _restore_dataclass(st.session_state.analysis_config, payload.get("analysis_config", {}))
+        st.session_state.metrics_config = {
+            role: _restore_dataclass(MetricConfig("", "", role), metric_payload)
+            for role, metric_payload in payload.get("metrics_config", {}).items()
+        } or st.session_state.metrics_config
+        st.session_state.experiment_name = experiment["name"]
+        st.session_state.pop("customer_experiment_name_v2", None)
+        st.session_state.analysis_results_by_role = {}
+        st.session_state.response_by_role = {}
+        st.session_state.customer_analysis_is_current = False
+        if st.session_state.data_config.source_type == "Upload File":
+            st.session_state.raw_df = pd.DataFrame()
+            st.session_state.processing_result = None
+    elif experiment["type"] == "Geography" and payload:
+        _restore_dataclass(st.session_state.geo_config, payload.get("geo_config", {}))
+        st.session_state.geo_analysis = None
+        st.session_state.geo_plan = None
+        if st.session_state.geo_config.data_source == "Upload File":
+            st.session_state.geo_raw_df = pd.DataFrame()
+            st.session_state.geo_panel_df = pd.DataFrame()
+            st.session_state.geo_assignment = pd.DataFrame()
+    elif experiment["type"] == "Time Series" and payload:
+        _restore_dataclass(st.session_state.ts_config, payload.get("ts_config", {}))
+        st.session_state.ts_prepost_result = None
+        st.session_state.ts_bsts_result = None
+        st.session_state.ts_duration_plan = None
+        if st.session_state.ts_config.data_source == "Upload File":
+            st.session_state.ts_raw_df = pd.DataFrame()
+            st.session_state.ts_prepared_df = pd.DataFrame()
+    st.session_state.active_portfolio_id = experiment["id"]
+    st.session_state.portfolio_selected_id = experiment["id"]
+    intent = "analyze" if experiment["status"] in {"Running", "Collecting outcomes", "Ready to decide", "Rolling out", "Completed"} else "plan"
+    portfolio_workspace(experiment["type"], intent)
+
+
+def portfolio_workspace(experiment_type: str, intent: str = "plan") -> None:
+    st.session_state.main_page = experiment_type
+    if experiment_type == "Customer":
+        st.session_state.customer_intent = intent
+    elif experiment_type == "Geography":
+        st.session_state.geo_intent = intent
+    else:
+        st.session_state.ts_intent = intent
+
+
+@st.dialog("Start a new experiment", width="large")
+def create_experiment_dialog() -> None:
+    st.caption("Answer four business questions. The platform will open the right planning workflow.")
+    with st.form("portfolio_create_experiment"):
+        name = st.text_input("What are you testing?", placeholder="Example: New retention offer")
+        delivery = st.selectbox(
+            "Who can receive different experiences?",
+            [
+                "Customers or accounts",
+                "Markets or regions",
+                "Everyone at the same time",
+            ],
+        )
+        left, right = st.columns(2)
+        owner = left.text_input("Owner", placeholder="Team or person")
+        outcome = right.text_input("Main outcome", placeholder="Example: 90-day retention")
+        launch_col, readout_col = st.columns(2)
+        launch = launch_col.date_input("Planned launch", value=pd.Timestamp.today().date() + pd.Timedelta(days=14))
+        readout = readout_col.date_input("Expected decision", value=pd.Timestamp.today().date() + pd.Timedelta(days=60))
+        submitted = st.form_submit_button("Create and start planning", type="primary", use_container_width=True)
+    if not submitted:
+        return
+    if not name.strip() or not outcome.strip():
+        st.error("Add the experiment name and main outcome before continuing.")
+        return
+    experiment_type = {
+        "Customers or accounts": "Customer",
+        "Markets or regions": "Geography",
+        "Everyone at the same time": "Time Series",
+    }[delivery]
+    record = upsert_experiment(
+        {
+            "name": name.strip(),
+            "description": "New experiment created from the Command Center.",
+            "type": experiment_type,
+            "owner": owner.strip() or "Unassigned",
+            "primary_outcome": outcome.strip(),
+            "status": "Planning",
+            "progress": 8,
+            "planned_launch_date": launch.isoformat(),
+            "readout_date": readout.isoformat(),
+            "action": "Complete test plan",
+            "projected_value": 0,
+            "allocation_health": 100,
+            "alert": "",
+            "guardrails": [],
+            "decision_snapshot": None,
+            "rollout_plan": [],
+        }
+    )
+    st.session_state.portfolio_selected_id = record["id"]
+    st.session_state.active_portfolio_id = record["id"]
+    if experiment_type == "Customer":
+        st.session_state.experiment_name = record["name"]
+        st.session_state.pop("customer_experiment_name_v2", None)
+    portfolio_workspace(experiment_type, "plan")
+    st.rerun()
+
+
+def lifecycle_html(experiments: list[dict]) -> str:
+    stages = []
+    for status in PORTFOLIO_STATUSES:
+        matches = [item for item in experiments if item.get("status") == status]
+        example = matches[0]["name"] if matches else "No experiment"
+        tone = "ready" if status == "Ready to decide" else "active" if matches and status not in {"Planning", "Completed"} else ""
+        stages.append(
+            f'<div class="lifecycle-stage {tone}"><div class="lifecycle-name">{html.escape(status)}</div>'
+            f'<div class="lifecycle-count">{len(matches)}</div><div class="lifecycle-example">{html.escape(example)}</div></div>'
+        )
+    return f'<div class="lifecycle-rail">{"".join(stages)}</div>'
+
+
+def render_attention_list(experiments: list[dict]) -> None:
+    alerts = [item for item in experiments if item.get("alert")]
+    if not alerts:
+        st.markdown('<div class="command-empty">Nothing needs attention right now.</div>', unsafe_allow_html=True)
+        return
+    items = "".join(
+        f'<div class="attention-item"><b>{html.escape(item["name"])}</b><span>{html.escape(item["alert"])}</span></div>'
+        for item in alerts[:3]
+    )
+    st.markdown(f'<div class="attention-list">{items}</div>', unsafe_allow_html=True)
+
+
+def render_experiment_detail(experiment: dict) -> None:
+    with st.expander(f'Open experiment details · {experiment["name"]}', expanded=False):
+        st.markdown(
+            f'<div class="experiment-detail-head"><div><strong>{html.escape(experiment["name"])}</strong>'
+            f'<span>{html.escape(experiment.get("description", ""))}</span></div><span class="record-version">Config v{int(experiment.get("config_version", 1))}</span></div>',
+            unsafe_allow_html=True,
+        )
+        pulse_tab, record_tab, decision_tab, rollout_tab = st.tabs(["Pulse", "Record", "Decision", "Rollout"])
+        with pulse_tab:
+            pulse = pulse_summary(experiment)
+            progress = int(round(100 * float(pulse["sample_progress"])))
+            st.markdown(
+                f'<div class="pulse-summary">'
+                f'<div class="pulse-summary-item"><span>Sample collected</span><b>{pulse["sample_collected"]:,} / {pulse["sample_target"]:,}</b></div>'
+                f'<div class="pulse-summary-item"><span>Current traffic</span><b>{pulse["traffic_per_period"]:,.0f} / {html.escape(str(pulse["traffic_frequency"]))}</b></div>'
+                f'<div class="pulse-summary-item"><span>Estimated completion</span><b>{html.escape(str(pulse["estimated_completion"]))}</b></div>'
+                f'<div class="pulse-summary-item"><span>Data updated</span><b>{html.escape(str(pulse["data_updated_at"]))[:16]}</b></div>'
+                f'</div>'
+                f'<div class="pulse-row"><span>Collection progress</span><div class="pulse-track"><div class="pulse-fill" style="width:{progress}%"></div></div><div class="pulse-value">{progress}%</div></div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown(f'**Primary metric direction:** {experiment["primary_outcome"]} · {pulse["primary_direction"]}')
+            st.markdown('<div class="interim-note">This is a monitoring signal only. The platform will not declare a winner before the planned sample and analysis are complete.</div>', unsafe_allow_html=True)
+            if pulse["allocation"]:
+                st.markdown("**Traffic allocation**")
+                allocation_rows = "".join(
+                    f'<div class="allocation-row"><span>{html.escape(str(row["arm"]))}</span><div class="allocation-track">'
+                    f'<div class="allocation-fill" style="width:{max(0, min(float(row["observed_pct"]), 100))}%"></div>'
+                    f'<div class="allocation-plan" style="left:{max(0, min(float(row["planned_pct"]), 100))}%"></div></div>'
+                    f'<b>{float(row["observed_pct"]):.1f}% / {float(row["planned_pct"]):.1f}%</b></div>'
+                    for row in pulse["allocation"]
+                )
+                st.markdown(allocation_rows, unsafe_allow_html=True)
+            guardrails = experiment.get("guardrails", [])
+            if guardrails:
+                st.markdown("**Guardrails**")
+                st.dataframe(pd.DataFrame(guardrails).rename(columns={"name": "Safety check", "value": "Current", "threshold": "Limit", "status": "Status"}), hide_index=True, use_container_width=True)
+            for alert in pulse["alerts"]:
+                st.warning(alert)
+            st.button(
+                f'Reopen {experiment["type"]} experiment',
+                type="primary",
+                key=f'portfolio_open_{experiment["id"]}',
+                on_click=restore_portfolio_experiment,
+                args=(experiment,),
+            )
+        with record_tab:
+            st.caption("Save the business record here. Uploaded source files are not copied into the portfolio.")
+            try:
+                launch_default = pd.Timestamp(experiment.get("planned_launch_date")).date()
+            except (TypeError, ValueError):
+                launch_default = pd.Timestamp.today().date()
+            try:
+                readout_default = pd.Timestamp(experiment.get("readout_date")).date()
+            except (TypeError, ValueError):
+                readout_default = pd.Timestamp.today().date() + pd.Timedelta(days=60)
+            with st.form(f'portfolio_record_{experiment["id"]}'):
+                owner_col, status_col = st.columns(2)
+                owner = owner_col.text_input("Owner", value=experiment.get("owner", ""))
+                status = status_col.selectbox("Status", PORTFOLIO_STATUSES, index=PORTFOLIO_STATUSES.index(experiment["status"]) if experiment["status"] in PORTFOLIO_STATUSES else 0)
+                launch_col, readout_col = st.columns(2)
+                launch = launch_col.date_input("Planned launch", value=launch_default)
+                readout = readout_col.date_input("Expected result", value=readout_default)
+                save_record = st.form_submit_button("Save record", type="primary")
+            if save_record:
+                updated = {**experiment, "owner": owner.strip() or "Unassigned", "status": status, "planned_launch_date": launch.isoformat(), "readout_date": readout.isoformat()}
+                upsert_experiment(updated)
+                st.rerun()
+            meta_left, meta_right = st.columns(2)
+            meta_left.caption(f'Configuration version: v{int(experiment.get("config_version", 1))}')
+            meta_right.caption(f'Last analysis: {experiment.get("analysis_timestamp") or "Not analyzed"}')
+            action_left, action_mid, action_right = st.columns(3)
+            if action_left.button("Copy experiment", use_container_width=True, key=f'copy_experiment_{experiment["id"]}'):
+                copied = upsert_experiment(duplicate_experiment(experiment))
+                st.session_state.portfolio_selected_id = copied["id"]
+                st.rerun()
+            action_mid.download_button(
+                "Download one-page report",
+                data=business_report_html(experiment).encode("utf-8"),
+                file_name=f'{experiment["id"]}-business-report.html',
+                mime="text/html",
+                use_container_width=True,
+                key=f'report_{experiment["id"]}',
+            )
+            action_right.button(
+                "Reopen experiment",
+                use_container_width=True,
+                key=f'reopen_record_{experiment["id"]}',
+                on_click=restore_portfolio_experiment,
+                args=(experiment,),
+            )
+        with decision_tab:
+            snapshot = experiment.get("decision_snapshot")
+            if snapshot:
+                st.success(f'{snapshot["decision"]} · saved by {snapshot["reviewer"]} on {snapshot["created_at"]}')
+                st.write(snapshot.get("rationale", ""))
+                st.caption(f'{len(experiment.get("frozen_snapshots", []))} frozen decision snapshot(s). Saved snapshots are never overwritten by later analysis.')
+            with st.form(f'portfolio_decision_{experiment["id"]}'):
+                decision = st.selectbox("Final decision", ["Launch", "Iterate", "Stop"])
+                reviewer = st.text_input("Reviewer", value=experiment.get("owner", ""))
+                rationale = st.text_area("Decision reason", placeholder="One sentence is enough.")
+                save_decision = st.form_submit_button("Save and freeze snapshot", type="primary")
+            if save_decision:
+                upsert_experiment(freeze_decision_snapshot(experiment, decision, reviewer.strip(), rationale.strip()))
+                st.rerun()
+        with rollout_tab:
+            st.caption("Turn the decision into four easy-to-review rollout checkpoints.")
+            existing_plan = experiment.get("rollout_plan", [])
+            if existing_plan:
+                rollout_table = pd.DataFrame(existing_plan).rename(columns={"stage": "Step", "percentage": "Audience %", "date": "Planned date", "status": "Status"})
+                st.dataframe(rollout_table, hide_index=True, use_container_width=True)
+            rollout_left, rollout_right = st.columns(2)
+            start = rollout_left.date_input("Rollout starts", value=pd.Timestamp.today().date(), key=f'rollout_start_{experiment["id"]}')
+            cadence = rollout_right.selectbox("Time between checkpoints", [7, 14, 21, 28], format_func=lambda value: f"{value} days", key=f'rollout_cadence_{experiment["id"]}')
+            if st.button("Build rollout plan", key=f'build_rollout_{experiment["id"]}'):
+                updated = {**experiment, "rollout_plan": build_rollout_plan(start, [10, 25, 50, 100], cadence)}
+                upsert_experiment(updated)
+                st.rerun()
+
+
 def show_overview() -> None:
-    st.markdown(
-        """
-        <section class="overview-hero">
-          <div class="overview-kicker">Experiment planning and measurement</div>
-          <h1>Choose how the change will be rolled out.</h1>
-          <p>Start with one business question. The platform will guide the data, test plan, impact calculation, and recommendation.</p>
-          <div class="overview-signal">
-            <span><b>3</b> analysis paths</span>
-            <span><b>1</b> guided workflow</span>
-            <span><b>Planning to decision</b> in one place</span>
-          </div>
-        </section>
-        <div class="overview-section-title">Who receives the change?</div>
-        <div class="overview-section-copy">Choose the option that matches how your campaign or strategy is delivered.</div>
-        """,
+    experiments = load_experiments()
+    summary = portfolio_summary(experiments)
+    title_col, action_col = st.columns([4.4, 1.25])
+    title_col.markdown(
+        '<div class="command-header"><div><h1>Experiment Command Center</h1>'
+        '<p>See what is running, what needs attention, and what is ready for a decision.</p></div></div>',
         unsafe_allow_html=True,
     )
-    customer, geography, time_series = st.columns(3)
-    with customer:
-        st.markdown(
-            """
-            <div class="workflow-card customer">
-              <div class="workflow-index">01 · Randomized</div>
-              <h3>Customer Experiment</h3>
-              <p>Compare different options across randomly assigned customers or accounts.</p>
-              <div class="workflow-fit"><b>Choose this when</b>Different customers can receive different options.</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.button("Open Customer", type="primary", use_container_width=True, key="overview_customer", on_click=open_workspace, args=("Customer",))
-    with geography:
-        st.markdown(
-            """
-            <div class="workflow-card geo">
-              <div class="workflow-index">02 · Market A/B</div>
-              <h3>Geographic Test</h3>
-              <p>Compare a campaign across fixed Test and Control markets, regions, or DMAs.</p>
-              <div class="workflow-fit"><b>Choose this when</b>Different locations receive different experiences.</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.button("Open Geography", use_container_width=True, key="overview_geo", on_click=open_workspace, args=("Geography",))
-    with time_series:
-        st.markdown(
-            """
-            <div class="workflow-card time">
-              <div class="workflow-index">03 · No control group</div>
-              <h3>Time Series Analysis</h3>
-              <p>Measure what changed after a campaign when everyone is affected at the same time.</p>
-              <div class="workflow-fit"><b>Choose this when</b>There is a known launch date but no separate control group.</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.button("Open Time Series", use_container_width=True, key="overview_ts", on_click=open_workspace, args=("Time Series",))
+    if action_col.button("New Experiment", type="primary", use_container_width=True, key="portfolio_new_experiment"):
+        create_experiment_dialog()
     st.markdown(
-        """
-        <div class="overview-flow">
-          <div class="flow-step"><div class="flow-number">1</div><b>Bring data</b><span>Upload history or start with demo data.</span></div>
-          <div class="flow-step"><div class="flow-number">2</div><b>Define the decision</b><span>Choose groups, metrics, and treatments.</span></div>
-          <div class="flow-step"><div class="flow-number">3</div><b>Plan and measure</b><span>Size the test and estimate impact.</span></div>
-          <div class="flow-step"><div class="flow-number">4</div><b>Decide</b><span>Review evidence, risk, and rollout readiness.</span></div>
-        </div>
-        """,
+        f'<div class="command-kpis">'
+        f'<div class="command-kpi"><div class="command-kpi-icon">RUN</div><div class="command-kpi-value">{summary["running"]}</div><div class="command-kpi-label">Experiments in market</div></div>'
+        f'<div class="command-kpi"><div class="command-kpi-icon ready">NOW</div><div class="command-kpi-value">{summary["ready"]}</div><div class="command-kpi-label">Ready for a decision</div></div>'
+        f'<div class="command-kpi"><div class="command-kpi-icon value">$</div><div class="command-kpi-value">{compact_money(float(summary["projected_value"]))}</div><div class="command-kpi-label">Projected portfolio value</div></div>'
+        f'</div>',
         unsafe_allow_html=True,
     )
+    st.markdown('<div class="command-section-head"><strong>Experiment journey</strong><span>Every experiment, from idea to rollout</span></div>', unsafe_allow_html=True)
+    st.markdown(lifecycle_html(experiments), unsafe_allow_html=True)
+
+    portfolio_col, attention_col = st.columns([3.4, 1.15])
+    with portfolio_col:
+        st.markdown('<div class="command-section-head"><strong>What is happening now</strong><span>Select a row for details</span></div>', unsafe_allow_html=True)
+        filter_left, filter_right = st.columns(2)
+        selected_status = filter_left.selectbox("Status", ["All statuses", *PORTFOLIO_STATUSES], label_visibility="collapsed", key="portfolio_status_filter")
+        selected_type = filter_right.selectbox("Type", ["All types", "Customer", "Geography", "Time Series"], label_visibility="collapsed", key="portfolio_type_filter")
+        visible = [item for item in experiments if (selected_status == "All statuses" or item["status"] == selected_status) and (selected_type == "All types" or item["type"] == selected_type)]
+        table = pd.DataFrame(
+            [
+                {
+                    "ID": item["id"],
+                    "Experiment": item["name"],
+                    "Status": item["status"],
+                    "Progress": int(item.get("progress", 0)),
+                }
+                for item in visible
+            ]
+        )
+        if table.empty:
+            st.info("No experiments match these filters.")
+        else:
+            event = st.dataframe(
+                table,
+                hide_index=True,
+                use_container_width=True,
+                height=min(38 * (len(table) + 1), 338),
+                on_select="rerun",
+                selection_mode="single-row",
+                column_config={
+                    "ID": None,
+                    "Progress": st.column_config.ProgressColumn("Progress", min_value=0, max_value=100, format="%d%%"),
+                },
+                key="portfolio_experiment_table",
+            )
+            selected_rows = event.selection.rows if event and hasattr(event, "selection") else []
+            if selected_rows:
+                st.session_state.portfolio_selected_id = table.iloc[selected_rows[0]]["ID"]
+    with attention_col:
+        st.markdown('<div class="command-section-head"><strong>Needs your attention</strong><span>Act next</span></div>', unsafe_allow_html=True)
+        render_attention_list(experiments)
+
+    selected_id = st.session_state.portfolio_selected_id
+    selected = next((item for item in experiments if item["id"] == selected_id), None)
+    if selected is None:
+        selected = next((item for item in experiments if item.get("alert")), experiments[0] if experiments else None)
+    if selected:
+        render_experiment_detail(selected)
+
+    with st.expander("Portfolio value and recent decisions", expanded=False):
+        value_col, decisions_col = st.columns([1.6, 1])
+        with value_col:
+            st.markdown("**Expected value over time**")
+            st.plotly_chart(portfolio_value_chart(pd.DataFrame(value_timeline(experiments))), use_container_width=True, key="portfolio_value_chart")
+        with decisions_col:
+            st.markdown("**Latest decisions**")
+            snapshots = [item for item in experiments if item.get("decision_snapshot")]
+            feed = "".join(
+                f'<div class="decision-feed-row"><div class="decision-dot"></div><div><b>{html.escape(item["name"])}</b>'
+                f'<span>{html.escape(item["decision_snapshot"]["decision"])} · {html.escape(item.get("action", ""))}</span></div>'
+                f'<time>{html.escape(item["decision_snapshot"]["created_at"])}</time></div>'
+                for item in snapshots[:5]
+            )
+            st.markdown(f'<div class="decision-feed">{feed}</div>', unsafe_allow_html=True)
 
 
 def configure_metric_compact(role: str, raw_df: pd.DataFrame) -> None:
@@ -1143,7 +1745,10 @@ def customer_data_step() -> None:
     c4.metric("Products / Brands", f"{len(population.selected_cpcs):,.0f}" if available_segments else "All")
     visual_count = int(bool(mapping.cpc_column and mapping.cpc_column in raw_df.columns)) + int(bool(mapping.booking_date_column and mapping.booking_date_column in raw_df.columns))
     if visual_count:
-        st.markdown("**Who Is In This Data?**")
+        st.markdown(
+            '<div class="customer-section-heading"><strong>Customer coverage</strong><span>See which products are represented and when customers entered the history.</span></div>',
+            unsafe_allow_html=True,
+        )
         visual_columns = st.columns(visual_count)
         visual_index = 0
         scoped_raw = raw_df
@@ -1174,7 +1779,10 @@ def customer_data_step() -> None:
         st.write(f"Excluded for insufficient maturity: {d['Excluded for Insufficient Maturity']:,.0f}")
         st.write(f"Excluded from the all-metric cohort for incomplete history: {d['Excluded for Data Completeness']:,.0f}")
 
-    st.markdown("**Data Preview**")
+    st.markdown(
+        '<div class="customer-section-heading"><strong>Customer data preview</strong><span>Inspect the source records or the analysis-ready customer view.</span></div>',
+        unsafe_allow_html=True,
+    )
     preview_mode = st.radio("Preview", ["Raw Data", "Processed Metrics", "Selected Raw Rows"], horizontal=True, label_visibility="collapsed", key="customer_preview_v2")
     if preview_mode == "Raw Data":
         preview = raw_df.head(20)
@@ -2084,6 +2692,27 @@ def render_customer_plan(
             ("Test Options", f"{arm_count:,.0f}", ""),
         ],
     )
+    primary = st.session_state.metrics_config["Primary"]
+    if primary.effect_type in {"Relative %", "Percentage Point"}:
+        tradeoff_effect = abs(float(primary.effect_value)) * 100
+        tradeoff_suffix = "%"
+    else:
+        tradeoff_effect = abs(float(primary.effect_value))
+        tradeoff_suffix = ""
+    st.markdown("**Test Size Trade-Off**")
+    st.caption("Explore the core planning trade-off: detecting a smaller improvement requires more accounts and a longer test.")
+    st.plotly_chart(
+        customer_design_tradeoff_chart(
+            tradeoff_effect,
+            design.total_sample_size,
+            total_duration,
+            duration_unit(design.traffic_frequency),
+            tradeoff_suffix,
+        ),
+        use_container_width=True,
+        key="customer_design_tradeoff_v1",
+    )
+    st.caption("The curve holds the current audiences, test options, variability, and traffic pattern fixed. It uses the standard inverse-square planning relationship around the current design.")
     raw_output = pd.DataFrame(plan_rows)[["Group", "Arm", "Role", "Required Accounts", "Traffic Allocation", "Flow per Period", "Test Duration"]].copy()
     raw_output["Test Option"] = raw_output["Arm"].map(lambda value: format_strategy_value(value, strategy))
     st.markdown("**How the Test Will Be Sized**")
@@ -2116,6 +2745,18 @@ def render_customer_plan(
     )
     output = output[["Group", "Test Option", "Type", "Required Accounts", "Share of Eligible Traffic", flow_label, "Test Duration"]]
     st.dataframe(output, use_container_width=True, hide_index=True)
+    weak_support = [
+        row for row in plan_rows
+        if str(row.get("Support", "")) in {"Limited", "Insufficient"}
+    ]
+    if weak_support:
+        affected = sorted({f"{row['Group']} · {format_strategy_value(row['Arm'], strategy)}" for row in weak_support})
+        st.warning(
+            "Historical variability is based on limited evidence for "
+            + ", ".join(affected[:5])
+            + (" and additional options." if len(affected) > 5 else ".")
+            + " Review the advanced calculation details before launch."
+        )
     if total_duration > design.max_enrollment_periods:
         st.warning(
             f"This design needs about {duration_label(int(math.ceil(total_duration)), design.traffic_frequency)}, "
@@ -2126,6 +2767,10 @@ def render_customer_plan(
         st.success(f"All groups can collect their required samples within {duration_label(design.max_enrollment_periods, design.traffic_frequency)}.")
     with st.expander("How this plan was calculated (advanced)", expanded=False):
         st.write(methodology)
+        if design.audience_decision_scope == "One joint decision across audiences":
+            st.write("The false-positive budget is protected across all customer audiences and treatment-versus-BAU comparisons in this plan.")
+        else:
+            st.write("Each customer audience is treated as a separate decision family; protection applies across treatment-versus-BAU comparisons within that audience.")
         st.write("Traffic is allocated from the required account targets so options within each customer group finish at approximately the same time.")
         if comparisons:
             detail = pd.DataFrame(comparisons)
@@ -2149,18 +2794,22 @@ def customer_plan_step() -> None:
     )
     st.markdown("**What Makes This Test Worth Running?**")
     st.caption("Use a decision threshold, not a forecast. A smaller improvement requires more customers.")
-    primary.effect_type = "Relative %"
     c1, c2, c3 = st.columns(3)
+    percentage_effect = primary.effect_type in {"Relative %", "Percentage Point"}
     shown_effect = c1.number_input(
-        "Smallest Improvement Worth Acting On (%)",
-        min_value=0.1,
-        max_value=100.0,
-        value=float(primary.effect_value) * 100,
-        step=0.5,
-        help="The smallest relative difference from BAU that would justify a business decision. Smaller effects require more accounts. This is a planning threshold, not a forecast.",
-        key="group_plan_mde_v1",
+        "Smallest Change Worth Acting On (%)" if percentage_effect else "Smallest Change Worth Acting On",
+        min_value=0.1 if percentage_effect else 0.0001,
+        max_value=100.0 if percentage_effect else None,
+        value=float(primary.effect_value) * 100 if percentage_effect else float(primary.effect_value),
+        step=0.5 if percentage_effect else max(abs(float(primary.effect_value)) * 0.05, 0.01),
+        help=(
+            "The smallest relative difference from BAU that would justify a business decision. Smaller effects require more accounts. This is a planning threshold, not a forecast."
+            if primary.effect_type == "Relative %"
+            else "The smallest absolute difference from BAU that would justify a business decision. This is a planning threshold, not a forecast."
+        ),
+        key=f"group_plan_mde_v2_{primary.effect_type}",
     )
-    primary.effect_value = shown_effect / 100
+    primary.effect_value = shown_effect / 100 if percentage_effect else shown_effect
     frequency_options = ["Monthly", "Weekly", "Daily"]
     design.traffic_frequency = c2.selectbox(
         "How Often Eligible Customers Arrive",
@@ -2182,7 +2831,7 @@ def customer_plan_step() -> None:
         )
     )
     st.markdown(
-        f'<div class="next-step"><strong>Planning target:</strong> detect a {shown_effect:.1f}% change '
+        f'<div class="next-step"><strong>Planning target:</strong> detect a {shown_effect:.1f}{"%" if percentage_effect else ""} change '
         f'within {design.max_enrollment_periods} {duration_unit(design.traffic_frequency)}s. '
         'The app will recommend accounts and traffic for every customer group.</div>',
         unsafe_allow_html=True,
@@ -2218,11 +2867,19 @@ def customer_plan_step() -> None:
             key="group_plan_metric_basis_v2",
         )
         design.multiplicity_method = st.selectbox(
-            "Multiple-Comparison Control",
+            "Protection Across Test Options",
             ["Holm", "None"],
             index=0 if design.multiplicity_method == "Holm" else 1,
-            help="Holm protects the overall false-positive rate when several treatments are compared with BAU.",
+            format_func=lambda value: "Conservative family-wise protection" if value == "Holm" else "No adjustment",
+            help="Planning reserves a conservative share of the false-positive budget for every treatment-versus-BAU comparison. Completed-result p-values use Holm step-down adjustment.",
             key="group_plan_multiplicity_v2",
+        )
+        design.audience_decision_scope = st.selectbox(
+            "Audience Decision Scope",
+            ["Separate decision per audience", "One joint decision across audiences"],
+            index=0 if design.audience_decision_scope == "Separate decision per audience" else 1,
+            help="Choose separate decisions when each audience can launch independently. Choose one joint decision when any audience finding will support the same overall claim.",
+            key="group_plan_audience_scope_v1",
         )
         design.attrition_rate = st.number_input(
             "Expected Missing Outcomes",
@@ -2234,26 +2891,44 @@ def customer_plan_step() -> None:
             help="Expected share of enrolled accounts that will not have a usable outcome at analysis time.",
             key="group_plan_attrition_v2",
         )
+        if strategy.strategy_type == "Numeric Strategy" and strategy.historical_evidence == "Use historical strategy values":
+            strategy.max_mapping_distance = st.number_input(
+                "Maximum Historical Distance from a Test Value",
+                min_value=0.0,
+                value=float(strategy.max_mapping_distance),
+                step=max(float(strategy.increment), 0.01),
+                help="Use 0 for automatic protection: half of the widest gap between proposed values. More distant historical customers are excluded from the arm-specific mean and SD.",
+                key="group_plan_max_mapping_distance_v1",
+            )
         st.markdown("**Metric-specific thresholds**")
-        st.caption("The primary metric uses the business target above. Secondary and guardrail thresholds can be adjusted here.")
+        st.caption("The primary metric uses the business target above. Existing units for additional outcomes and safety limits are preserved.")
         threshold_rows = []
         for metric in st.session_state.metrics_config.values():
-            metric.effect_type = "Relative %"
             if metric.role != "Primary":
-                threshold_rows.append({"Role": metric.role, "Metric": metric.name, "Smallest Effect (%)": float(metric.effect_value) * 100})
-        edited_thresholds = st.data_editor(
-            pd.DataFrame(threshold_rows),
-            use_container_width=True,
-            hide_index=True,
-            disabled=["Role", "Metric"],
-            column_config={"Smallest Effect (%)": st.column_config.NumberColumn("Smallest Effect (%)", min_value=0.1, max_value=100.0, required=True)},
-            key="group_metric_thresholds_v1",
-        )
-        for _, row in edited_thresholds.iterrows():
-            metric = st.session_state.metrics_config[str(row["Role"])]
-            metric.effect_value = float(row["Smallest Effect (%)"]) / 100
-            if metric.role == "Guardrail":
-                metric.guardrail_threshold = metric.effect_value
+                threshold_rows.append(
+                    {
+                        "Role": metric.role,
+                        "Metric": metric.name,
+                        "Scale": metric.effect_type,
+                        "Decision Threshold": float(metric.effect_value) * 100 if metric.effect_type in {"Relative %", "Percentage Point"} else float(metric.effect_value),
+                    }
+                )
+        if threshold_rows:
+            edited_thresholds = st.data_editor(
+                pd.DataFrame(threshold_rows),
+                use_container_width=True,
+                hide_index=True,
+                disabled=["Role", "Metric", "Scale"],
+                column_config={"Decision Threshold": st.column_config.NumberColumn("Decision Threshold", min_value=0.0001, required=True)},
+                key="group_metric_thresholds_v2",
+            )
+            for _, row in edited_thresholds.iterrows():
+                metric = st.session_state.metrics_config[str(row["Role"])]
+                metric.effect_value = float(row["Decision Threshold"]) / 100 if metric.effect_type in {"Relative %", "Percentage Point"} else float(row["Decision Threshold"])
+                if metric.role == "Guardrail":
+                    metric.guardrail_threshold = metric.effect_value
+        else:
+            st.caption("No additional outcomes or safety limits are configured.")
 
     use_point_history = (
         strategy.strategy_type == "Numeric Strategy"
@@ -2274,6 +2949,11 @@ def customer_plan_step() -> None:
         if not treatments:
             st.error("Configure at least one treatment arm in Strategy before planning.")
             return
+        family_comparisons = planning_comparison_count(
+            len(treatments),
+            len(group_names),
+            design.audience_decision_scope,
+        )
         st.markdown("**Test Options**")
         arm_rows = [{"Role": "Control", "Strategy Arm": format_strategy_value(control, strategy)}]
         arm_rows.extend({"Role": "Treatment", "Strategy Arm": format_strategy_value(arm, strategy)} for arm in treatments)
@@ -2304,6 +2984,7 @@ def customer_plan_step() -> None:
                         list(treatments),
                         float(settings["eligible_flow"]),
                         group,
+                        family_comparisons=family_comparisons,
                     )
                     all_plan_rows.extend(plan_rows)
                     all_comparisons.extend([{**row, "Group": group} for row in comparisons])
@@ -2388,6 +3069,12 @@ def customer_plan_step() -> None:
                     treatment_count,
                     float(settings["eligible_flow"]),
                     int(design.max_enrollment_periods),
+                    family_comparisons=planning_comparison_count(
+                        treatment_count,
+                        len(group_names),
+                        design.audience_decision_scope,
+                    ),
+                    max_mapping_distance=float(strategy.max_mapping_distance),
                 )
                 if suggestions.empty:
                     st.warning("No statistically usable suggestion is available inside this business range. Expand the range or choose values manually.")
@@ -2450,6 +3137,12 @@ def customer_plan_step() -> None:
                     treatments,
                     float(settings["eligible_flow"]),
                     group,
+                    family_comparisons=planning_comparison_count(
+                        len(treatments),
+                        len(group_names),
+                        design.audience_decision_scope,
+                    ),
+                    max_mapping_distance=float(strategy.max_mapping_distance),
                 )
                 all_plan_rows.extend(plan_rows)
                 all_comparisons.extend([{**row, "Group": group} for row in comparisons])
@@ -2462,7 +3155,7 @@ def customer_plan_step() -> None:
         all_comparisons,
         binding_labels,
         group_names,
-        "Historical customers are assigned to the closest proposed numeric strategy value within each customer group. Means and standard deviations are estimated separately for every group and value, and the design uses generalized Neyman allocation.",
+        "Historical customers are assigned to the closest proposed numeric strategy value within each customer group. Automatic distance protection excludes observations farther than half of the widest gap between test values unless a custom limit is supplied. Means and standard deviations are estimated separately for every group and value, and the design uses generalized Neyman allocation.",
     )
 
 
@@ -3063,17 +3756,29 @@ def analysis_step() -> None:
             st.error(f"{role} Result Column cannot be the Experimental Assignment Column.")
             invalid_mapping = True
     outcomes = {role: (result_columns[role], metric.metric_type) for role, metric in st.session_state.metrics_config.items() if role in result_columns}
-    validation_errors, validation_warnings = validate_analysis_data(df, assignment_col, outcomes, control, treatments, analysis_config.unit_id_column)
+    selected_arms = [control] + treatments
+    planned_sizes = {arm: float(design.arm_sample_sizes.get(str(arm), 0)) for arm in selected_arms}
+    expected_shares = planned_sizes if planned_sizes and all(value > 0 for value in planned_sizes.values()) else None
+    validation_errors, validation_warnings = validate_analysis_data(
+        df,
+        assignment_col,
+        outcomes,
+        control,
+        treatments,
+        analysis_config.unit_id_column,
+        expected_shares,
+    )
     for warning in validation_warnings:
         st.warning(warning)
     for error in validation_errors:
         st.error(error)
-    integrity = analysis_integrity_summary(df, assignment_col, outcomes, [control] + treatments, analysis_config.unit_id_column)
+    integrity = analysis_integrity_summary(df, assignment_col, outcomes, selected_arms, analysis_config.unit_id_column, expected_shares)
     analysis_ready = not validation_errors and not invalid_mapping
+    health_status = "Ready to run" if analysis_ready and integrity["srm_status"] == "Pass" else "Review allocation" if analysis_ready else "Review data"
     render_customer_kpi_panel(
-        "Analysis Readiness",
-        "A quick quality check before estimating treatment effects.",
-        "Ready to run" if analysis_ready else "Review data",
+        "Experiment Health",
+        "Confirm that assignment and outcome data are trustworthy before using the result.",
+        health_status,
         [
             ("Analysis Units", f"{integrity['unique_units']:,}", "analysis"),
             ("Duplicate Units", f"{integrity['duplicate_units']:,}", ""),
@@ -3082,6 +3787,26 @@ def analysis_step() -> None:
         ],
         analysis=True,
     )
+    health_chart, health_explanation = st.columns([1.55, 1])
+    with health_chart:
+        st.caption("Observed customers / accounts compared with the planned traffic split")
+        st.plotly_chart(
+            customer_allocation_health_chart(integrity["arm_counts"], integrity["expected_counts"]),
+            use_container_width=True,
+            key="customer_allocation_health_v1",
+        )
+    with health_explanation:
+        st.markdown("**What this means**")
+        if integrity["srm_status"] == "Review":
+            st.warning("The group sizes differ more than random variation would usually explain. Check assignment rules and tracking before trusting the effect estimate.")
+        else:
+            st.success("The observed group sizes are consistent with the planned split. No allocation anomaly was detected.")
+        if integrity["duplicate_units"]:
+            st.error("Some customers or accounts appear more than once. Aggregate to one row per randomized unit.")
+        elif integrity["missing_by_metric"].get("Primary", 0):
+            st.info("Some primary outcomes are missing. Confirm that missingness is not concentrated in one test group.")
+        else:
+            st.caption("Customer IDs are unique and the primary outcome is complete for the analyzed rows.")
     with st.expander("Analysis Data Audit", expanded=False):
         audit_rows = [{"Arm": arm, "Units": integrity["arm_counts"].get(arm, 0)} for arm in [control] + treatments]
         st.dataframe(pd.DataFrame(audit_rows), use_container_width=True, hide_index=True)
@@ -3158,12 +3883,14 @@ def decision_step() -> None:
         st.info("No treatment arm is available for a decision comparison.")
         return
     scale_candidates = scorecard[scorecard["Decision"] == "Scale candidate"]
-    leading_row = scale_candidates.iloc[0] if not scale_candidates.empty else scorecard.iloc[0]
+    promising_candidates = scorecard[scorecard["Decision"] == "Promising; add safety check"]
+    leading_row = scale_candidates.iloc[0] if not scale_candidates.empty else promising_candidates.iloc[0] if not promising_candidates.empty else scorecard.iloc[0]
     leading_lift = leading_row.get("Relative Lift", float("nan"))
+    decision_status = "Scale candidate" if not scale_candidates.empty else "Promising result" if not promising_candidates.empty else "Review result"
     render_customer_kpi_panel(
         "Experiment Decision",
         "The leading tested treatment based on primary-metric evidence and configured safety checks.",
-        "Scale candidate" if not scale_candidates.empty else "Review result",
+        decision_status,
         [
             ("Leading Treatment", str(leading_row["Treatment Arm"]), "treatment"),
             ("Relative Lift", percent(leading_lift, 1) if pd.notna(leading_lift) else "Not available", "analysis" if pd.notna(leading_lift) and leading_lift > 0 else ""),
@@ -3172,6 +3899,107 @@ def decision_step() -> None:
         ],
         analysis=True,
     )
+    if guardrail_metric is None:
+        if decision_status == "Promising result":
+            st.warning("The primary outcome improved, but no safety outcome was configured. Complete operational and risk checks before rollout.")
+        else:
+            st.info("No safety outcome was configured. The result describes primary-outcome performance, but it cannot confirm rollout safety.")
+
+    st.markdown("**Treatment Decision Map**")
+    st.caption("Options farther right deliver more business benefit. Options higher on the chart have stronger evidence.")
+    st.plotly_chart(
+        customer_decision_map(
+            scorecard,
+            results["Primary"],
+            meaningful_effect,
+            primary_metric.direction,
+            primary_metric.name,
+        ),
+        use_container_width=True,
+        key="customer_decision_map_v1",
+    )
+
+    leading_result = results["Primary"][results["Primary"]["Credit Line"] == leading_row["Treatment Arm"]]
+    if not leading_result.empty:
+        st.markdown("**Full-Rollout Impact Simulator**")
+        st.caption("Translate the measured per-customer effect into the total outcome change expected for the population you may roll out to.")
+        analyzed_population = int(results["Primary"]["N"].sum())
+        rollout_population = int(
+            st.number_input(
+                "Customers / Accounts Eligible for Full Rollout",
+                min_value=1,
+                value=max(analyzed_population, 1),
+                step=max(100, int(max(analyzed_population, 1) / 10)),
+                help="Enter the future population that would receive the winning option, not the experiment sample size.",
+                key="customer_rollout_population_v1",
+            )
+        )
+        projection = project_rollout_impact(leading_result.iloc[0], rollout_population, primary_metric.direction)
+        if projection["outcome_impact"] < 0:
+            impact_label = "Expected Outcome Change" if primary_metric.metric_type == "Binary" else "Expected Total Outcome Change"
+        elif primary_metric.metric_type == "Binary":
+            impact_label = "Expected Additional Outcomes" if primary_metric.direction == "Higher is Better" else "Expected Avoided Outcomes"
+        else:
+            impact_label = "Expected Total Outcome Gain" if primary_metric.direction == "Higher is Better" else "Expected Total Outcome Reduction"
+        impact_columns = st.columns(3)
+        impact_columns[0].metric("Full Rollout Population", f"{rollout_population:,.0f}")
+        impact_columns[1].metric(impact_label, f"{projection['outcome_impact']:+,.0f}")
+        impact_columns[2].metric("95% Plausible Range", f"{projection['outcome_lower']:+,.0f} to {projection['outcome_upper']:+,.0f}")
+        pace_left, pace_right = st.columns([1, 1.35])
+        rollout_periods = int(
+            pace_left.select_slider(
+                "Periods to Reach Full Rollout",
+                options=[1, 2, 3, 4, 6, 9, 12, 18, 24],
+                value=6,
+                help="Choose how many operating periods it will take to reach the full eligible population.",
+                key="customer_rollout_periods_v1",
+            )
+        )
+        rollout_pattern = pace_right.selectbox(
+            "Rollout Pattern",
+            ["Even pace", "Pilot, then scale", "Fast start"],
+            help="Pilot, then scale starts cautiously. Fast start reaches more customers earlier.",
+            key="customer_rollout_pattern_v1",
+        )
+        st.plotly_chart(
+            customer_rollout_impact_chart(
+                leading_result.iloc[0],
+                rollout_population,
+                primary_metric.direction,
+                rollout_periods,
+                rollout_pattern,
+            ),
+            use_container_width=True,
+            key="customer_rollout_impact_v1",
+        )
+        with st.expander("Convert outcome impact to business value", expanded=False):
+            value_left, value_right = st.columns(2)
+            value_per_unit = value_left.number_input(
+                "Business Value per Outcome Unit ($)",
+                min_value=0.0,
+                value=1.0,
+                step=1.0,
+                help="For example, enter contribution margin per retained customer or economic value per unit of the primary outcome.",
+                key="customer_value_per_outcome_v1",
+            )
+            implementation_cost = value_right.number_input(
+                "Estimated Rollout Cost ($)",
+                min_value=0.0,
+                value=0.0,
+                step=1000.0,
+                key="customer_rollout_cost_v1",
+            )
+            valued_projection = project_rollout_impact(
+                leading_result.iloc[0],
+                rollout_population,
+                primary_metric.direction,
+                value_per_unit,
+                implementation_cost,
+            )
+            value_metrics = st.columns(2)
+            value_metrics[0].metric("Expected Net Business Value", money(valued_projection["net_value"]))
+            value_metrics[1].metric("95% Value Range", f"{money(valued_projection['net_lower'])} to {money(valued_projection['net_upper'])}")
+        st.caption("Projection assumes the measured per-customer effect continues at full rollout. It does not include market saturation, operational constraints, or unmeasured safety effects.")
     display = scorecard.copy()
     display["Primary Effect"] = display["Primary Effect"].apply(lambda value: number(value, 2))
     display["Relative Lift"] = display["Relative Lift"].apply(lambda value: percent(value, 1) if pd.notna(value) else "")
@@ -3188,6 +4016,116 @@ def decision_step() -> None:
     else:
         st.success(recommendation)
     st.caption("The recommendation applies only to the tested arms, eligible population, observation windows, and configured metrics.")
+
+
+def start_time_series_workflow(intent: str) -> None:
+    """Enter a Time Series workflow with the matching demo when no custom data is active."""
+    cfg: TimeSeriesConfig = st.session_state.ts_config
+    if st.session_state.ts_raw_df.empty or cfg.data_source == "Synthetic Demo":
+        cfg.data_source = "Synthetic Demo"
+        if intent == "plan":
+            st.session_state.ts_raw_df = load_timeseries_planning_demo()
+            cfg.dataset_name = "Synthetic Historical Time Series"
+        else:
+            st.session_state.ts_raw_df = load_timeseries_demo()
+            cfg.dataset_name = "Synthetic Campaign Time Series"
+        st.session_state.ts_prepared_df = pd.DataFrame()
+    st.session_state.ts_intent = intent
+
+
+def ts_landing_preview() -> None:
+    """Show the time-series story before asking the user to configure the workflow."""
+    cfg: TimeSeriesConfig = st.session_state.ts_config
+    using_workspace = not st.session_state.ts_raw_df.empty
+    raw = st.session_state.ts_raw_df if using_workspace else load_timeseries_demo()
+    inferred = infer_timeseries_columns(raw)
+    columns = list(raw.columns)
+    date_col = cfg.date_column if using_workspace and cfg.date_column in columns else inferred["date"]
+    outcome_col = cfg.outcome_column if using_workspace and cfg.outcome_column in columns else inferred["outcome"]
+    flag_col = cfg.campaign_flag_column if using_workspace and cfg.campaign_flag_column in columns else inferred["campaign_flag"]
+    try:
+        preview = build_timeseries_preview(raw, date_col, outcome_col, flag_col, cfg.duplicate_policy, cfg.missing_policy)
+    except Exception:
+        raw = load_timeseries_demo()
+        date_col, outcome_col, flag_col = "date", "applications", "campaign_flag"
+        preview = build_timeseries_preview(raw, date_col, outcome_col, flag_col)
+        using_workspace = False
+
+    prepared = preview["prepared"]
+    launch = preview["campaign_launch"]
+    if launch is None and cfg.intervention_date:
+        candidate = pd.Timestamp(cfg.intervention_date)
+        if preview["start_date"] <= candidate <= preview["end_date"]:
+            launch = candidate
+    pre_count = int((prepared["_date"] < launch).sum()) if launch is not None else int(preview["observations"])
+    post_count = int((prepared["_date"] >= launch).sum()) if launch is not None else 0
+    total_count = max(pre_count + post_count, 1)
+    pre_share = pre_count / total_count * 100
+    post_share = post_count / total_count * 100
+    period_label = f"{pd.Timestamp(preview['start_date']):%b %Y} – {pd.Timestamp(preview['end_date']):%b %Y}"
+    source_label = "your current dataset" if using_workspace else "the built-in campaign demo"
+    launch_label = pd.Timestamp(launch).strftime("%b %-d, %Y") if launch is not None else "Not launched"
+    context_note = (
+        f"Campaign launch is visible on {launch_label}. The shaded region is the period available for impact analysis."
+        if launch is not None
+        else "This is historical-only planning data. The workflow will place the planned launch after the available history."
+    )
+
+    action_copy, plan_action, analyze_action = st.columns([2.4, 1.15, 1.15])
+    action_copy.markdown(
+        f'<div class="ts-demo-actions"><div><strong>See the campaign story first</strong><span>Previewing {html.escape(source_label)}. Choose what you need next.</span></div></div>',
+        unsafe_allow_html=True,
+    )
+    if plan_action.button("Plan a Campaign", type="primary", use_container_width=True, key="ts_demo_plan"):
+        start_time_series_workflow("plan")
+        st.rerun()
+    if analyze_action.button("Analyze Campaign Results", use_container_width=True, key="ts_demo_analyze"):
+        start_time_series_workflow("analyze")
+        st.rerun()
+
+    chart_col, summary_col = st.columns([1.75, 0.75])
+    with chart_col:
+        with st.container(border=True):
+            st.plotly_chart(
+                time_series_line(prepared, pd.Timestamp(launch).date().isoformat() if launch is not None else "", humanize_column_name(outcome_col)),
+                use_container_width=True,
+                config={"displayModeBar": False},
+            )
+    with summary_col:
+        st.markdown(
+            f"""
+            <section class="ts-preview-summary">
+              <h3>Data for this campaign</h3>
+              <div class="ts-preview-grid">
+                <div class="ts-preview-stat"><div class="ts-preview-label">Observations</div><div class="ts-preview-value">{int(preview['observations']):,}</div><div class="ts-preview-detail">{int(preview['missing_periods'])} missing periods</div></div>
+                <div class="ts-preview-stat"><div class="ts-preview-label">Time period</div><div class="ts-preview-value">{html.escape(period_label)}</div><div class="ts-preview-detail">{html.escape(str(preview['frequency']))} data</div></div>
+                <div class="ts-preview-stat"><div class="ts-preview-label">Outcome</div><div class="ts-preview-value">{html.escape(humanize_column_name(outcome_col))}</div><div class="ts-preview-detail">Business result to measure</div></div>
+                <div class="ts-preview-stat"><div class="ts-preview-label">Campaign launch</div><div class="ts-preview-value">{html.escape(launch_label)}</div><div class="ts-preview-detail">{len(preview['predictors'])} usable predictor{'s' if len(preview['predictors']) != 1 else ''}</div></div>
+              </div>
+              <div class="ts-period-split">
+                <div class="ts-period-row"><span>Timeline coverage</span><b>{pre_count} before · {post_count} after</b></div>
+                <div class="ts-period-track"><div class="ts-period-pre" style="width:{pre_share:.1f}%"></div><div class="ts-period-post" style="width:{post_share:.1f}%"></div></div>
+                <div class="ts-period-legend"><span>Historical baseline</span><span>Campaign period</span></div>
+              </div>
+              <div class="ts-preview-note">{html.escape(context_note)}</div>
+            </section>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    preview_columns = [column for column in raw.columns if not str(column).startswith("_")]
+    roles = {date_col: "Date", outcome_col: "Outcome"}
+    if flag_col != "None":
+        roles[flag_col] = "Campaign"
+    display_headers = {column: f"{humanize_column_name(column)} [{roles[column]}]" if column in roles else humanize_column_name(column) for column in preview_columns}
+    display = raw.loc[:, preview_columns].head(12).copy()
+    display[date_col] = pd.to_datetime(display[date_col], errors="coerce").dt.strftime("%b %-d, %Y")
+    display = display.rename(columns=display_headers)
+    st.markdown(
+        f'<div class="ts-section-heading"><strong>Campaign data preview</strong><span>Showing {min(12, len(raw))} of {len(raw):,} rows · all {len(preview_columns)} source columns.</span></div>',
+        unsafe_allow_html=True,
+    )
+    st.dataframe(display, use_container_width=True, hide_index=True, height=330)
 
 
 def ts_data_step() -> None:
@@ -3224,7 +4162,7 @@ def ts_data_step() -> None:
     numeric = numeric_columns(df)
     cfg.outcome_column = cfg.outcome_column if cfg.outcome_column in numeric else inferred["outcome"]
     cfg.segment_column = cfg.segment_column if cfg.segment_column in ["None"] + list(df.columns) else inferred["segment"]
-    cfg.campaign_flag_column = cfg.campaign_flag_column if cfg.campaign_flag_column in ["None"] + list(df.columns) else inferred["campaign_flag"]
+    cfg.campaign_flag_column = cfg.campaign_flag_column if cfg.campaign_flag_column in df.columns else inferred["campaign_flag"]
     cfg.exposure_column = cfg.exposure_column if cfg.exposure_column in ["None"] + numeric else "None"
 
     st.markdown("**Tell Us What Each Column Means**")
@@ -3257,6 +4195,21 @@ def ts_data_step() -> None:
             st.warning(f"{duplicates:,.0f} duplicate timestamps were found.")
         if missing:
             st.warning(f"{missing:,.0f} {detected.lower()} observations are missing from the time series.")
+        preview_launch = ""
+        if cfg.campaign_flag_column != "None" and cfg.campaign_flag_column in df:
+            source_dates = pd.to_datetime(df[cfg.date_column], errors="coerce")
+            source_flags = pd.to_numeric(df[cfg.campaign_flag_column], errors="coerce").fillna(0)
+            launch_dates = source_dates[source_flags > 0].dropna()
+            preview_launch = launch_dates.min().date().isoformat() if not launch_dates.empty else ""
+        st.markdown(
+            '<div class="ts-section-heading"><strong>Series preview</strong><span>Check the cadence, trend, and campaign boundary before continuing.</span></div>',
+            unsafe_allow_html=True,
+        )
+        st.plotly_chart(
+            time_series_line(prepared, preview_launch, humanize_column_name(cfg.outcome_column)),
+            use_container_width=True,
+            config={"displayModeBar": False},
+        )
         st.markdown("**Data Preview**")
         preview_mode = st.radio("Preview", ["All columns", "Mapped columns only"], horizontal=True, key="ts_preview_mode", label_visibility="collapsed")
         internal_columns = {"_date", "_outcome", "_normalized_date", "_internal_metric"}
@@ -3949,7 +4902,136 @@ def geo_map_frame(data: pd.DataFrame, assignment: pd.DataFrame | None = None) ->
         latest["status"] = latest["_dma"].map(group_map).fillna("Not assigned")
     latest["lat"] = latest["_dma"].map(lambda dma: DMA_CENTROIDS.get(dma, (None, None))[0])
     latest["lon"] = latest["_dma"].map(lambda dma: DMA_CENTROIDS.get(dma, (None, None))[1])
+    latest["label"] = latest["_dma"].replace(
+        {
+            "Dallas-Ft. Worth": "Dallas",
+            "Miami-Ft. Lauderdale": "Miami",
+            "Minneapolis-St. Paul": "Minneapolis",
+            "San Francisco-Oakland-San Jose": "San Francisco",
+            "Tampa-St. Petersburg": "Tampa",
+            "Washington DC": "DC",
+        }
+    )
     return latest.rename(columns={"_dma": "dma"})
+
+
+def start_geography_workflow(intent: str) -> None:
+    """Enter a workflow with the visible demo data when no workspace data exists yet."""
+    if st.session_state.geo_raw_df.empty:
+        cfg: GeoConfig = st.session_state.geo_config
+        cfg.data_source = "Synthetic Demo"
+        cfg.dataset_name = "Synthetic DMA Campaign Panel"
+        st.session_state.geo_raw_df = load_geo_demo()
+    st.session_state.geo_intent = intent
+
+
+def geo_landing_preview() -> None:
+    """Render a read-only overview that explains the geography workflow at a glance."""
+    cfg: GeoConfig = st.session_state.geo_config
+    using_workspace = not st.session_state.geo_raw_df.empty
+    raw = st.session_state.geo_raw_df if using_workspace else load_geo_demo()
+    inferred = infer_geo_schema(raw)
+    columns = list(raw.columns)
+    date_col = cfg.date_column if using_workspace and cfg.date_column in columns else inferred["date"]
+    dma_col = cfg.dma_column if using_workspace and cfg.dma_column in columns else inferred["dma"]
+    outcome_col = cfg.outcome_column if using_workspace and cfg.outcome_column in columns else inferred["outcome"]
+    group_col = cfg.group_column if using_workspace and cfg.group_column in columns else inferred["group"]
+    market_size_col = cfg.market_size_column if using_workspace and cfg.market_size_column in columns else inferred["market_size"]
+
+    try:
+        panel = prepare_geo_panel(raw, date_col, dma_col, outcome_col)
+        validation = validate_fixed_assignment(panel, group_col, test_label=cfg.test_label, control_label=cfg.control_label)
+        assignment = validation["assignment"] if not validation["errors"] else pd.DataFrame(columns=["DMA", "Group"])
+        preview = build_geo_preview(panel, assignment, market_size_col)
+    except Exception:
+        raw = load_geo_demo()
+        panel = prepare_geo_panel(raw, "week", "dma", "applications")
+        assignment = validate_fixed_assignment(panel, "treatment_group")["assignment"]
+        preview = build_geo_preview(panel, assignment, "population")
+        date_col, dma_col, outcome_col = "week", "dma", "applications"
+        using_workspace = False
+
+    quality = preview["quality"]
+    counts = preview["counts"]
+    total_markets = int(quality["dma_count"])
+    test_markets = int(counts.get("Test", 0))
+    control_markets = int(counts.get("Control", 0))
+    assigned_total = max(test_markets + control_markets, 1)
+    start_date = pd.Timestamp(preview["start_date"])
+    end_date = pd.Timestamp(preview["end_date"])
+    period_label = f"{start_date:%b %Y} – {end_date:%b %Y}"
+    source_label = "your current dataset" if using_workspace else "the built-in demo"
+
+    action_copy, plan_action, analyze_action = st.columns([2.4, 1.15, 1.15])
+    action_copy.markdown(
+        f'<div class="geo-demo-actions"><div><strong>See the market story first</strong><span>Previewing {html.escape(source_label)}. Choose a workflow when the structure looks right.</span></div></div>',
+        unsafe_allow_html=True,
+    )
+    if plan_action.button("Plan a Geographic Test", type="primary", use_container_width=True, key="geo_demo_plan"):
+        start_geography_workflow("plan")
+        st.rerun()
+    if analyze_action.button("Analyze Test Results", use_container_width=True, key="geo_demo_analyze"):
+        start_geography_workflow("analyze")
+        st.rerun()
+
+    map_col, summary_col = st.columns([1.75, 0.75])
+    with map_col:
+        with st.container(border=True):
+            st.plotly_chart(
+                geo_dma_map(geo_map_frame(panel, assignment), "", height=420, show_labels=True),
+                use_container_width=True,
+                config={"displayModeBar": False},
+            )
+    with summary_col:
+        test_share = test_markets / assigned_total * 100
+        control_share = control_markets / assigned_total * 100
+        assignment_note = (
+            "Assignments are fixed. The same Test and Control markets are used for planning and analysis."
+            if not assignment.empty
+            else "The data is visible, but Test and Control labels still need to be confirmed."
+        )
+        st.markdown(
+            f"""
+            <section class="geo-preview-summary">
+              <h3>Data for this experiment</h3>
+              <div class="geo-preview-grid">
+                <div class="geo-preview-stat"><div class="geo-preview-label">Markets</div><div class="geo-preview-value">{total_markets:,}</div><div class="geo-preview-detail">{test_markets} Test · {control_markets} Control</div></div>
+                <div class="geo-preview-stat"><div class="geo-preview-label">Time period</div><div class="geo-preview-value">{html.escape(period_label)}</div><div class="geo-preview-detail">{html.escape(str(quality['frequency']))} data</div></div>
+                <div class="geo-preview-stat"><div class="geo-preview-label">Outcome</div><div class="geo-preview-value">{html.escape(humanize_column_name(outcome_col))}</div><div class="geo-preview-detail">Compared through time</div></div>
+                <div class="geo-preview-stat"><div class="geo-preview-label">Coverage</div><div class="geo-preview-value">{int(quality['period_count']):,} periods</div><div class="geo-preview-detail">{len(raw):,} source rows</div></div>
+              </div>
+              <div class="geo-assignment-bars">
+                <div class="geo-assignment-row"><span>Test</span><div class="geo-assignment-track"><div class="geo-assignment-fill" style="width:{test_share:.1f}%"></div></div><b>{test_markets}</b></div>
+                <div class="geo-assignment-row"><span>Control</span><div class="geo-assignment-track"><div class="geo-assignment-fill control" style="width:{control_share:.1f}%"></div></div><b>{control_markets}</b></div>
+              </div>
+              <div class="geo-preview-note">{html.escape(assignment_note)}</div>
+            </section>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown(
+        '<div class="geo-section-heading"><strong>How Test and Control move together</strong><span>The launch marker shows where impact measurement begins.</span></div>',
+        unsafe_allow_html=True,
+    )
+    launch_date = "2026-09-06" if not using_workspace else cfg.campaign_start_date
+    st.plotly_chart(
+        geo_trend_chart(preview["trend"], launch_date, humanize_column_name(outcome_col)),
+        use_container_width=True,
+        config={"displayModeBar": False},
+    )
+
+    market_preview = preview["markets"].copy()
+    market_preview["Average Outcome"] = market_preview["Average Outcome"].round(0)
+    market_preview["Start Date"] = pd.to_datetime(market_preview["Start Date"]).dt.strftime("%b %Y")
+    market_preview["Latest Date"] = pd.to_datetime(market_preview["Latest Date"]).dt.strftime("%b %Y")
+    if "Market Size" in market_preview:
+        market_preview["Market Size"] = market_preview["Market Size"].round(0)
+    st.markdown(
+        f'<div class="geo-section-heading"><strong>Market data preview</strong><span>Showing {min(10, len(market_preview))} of {len(market_preview)} markets from {html.escape(source_label)}.</span></div>',
+        unsafe_allow_html=True,
+    )
+    st.dataframe(market_preview.head(10), use_container_width=True, hide_index=True, height=300)
 
 
 def geo_data_step() -> None:
@@ -4044,9 +5126,27 @@ def geo_data_step() -> None:
         st.session_state.geo_assignment = validation["assignment"] if not validation["errors"] else pd.DataFrame()
         for issue in validation["errors"]:
             st.error(issue)
-        with st.expander("Preview uploaded data", expanded=False):
-            st.caption(f"Showing 20 of {len(raw):,} rows · {len(raw.columns):,} columns")
-            st.dataframe(raw.head(20), use_container_width=True, height=420)
+        st.markdown(
+            '<div class="geo-section-heading"><strong>Preview the market panel</strong><span>Confirm the geography, time coverage, and source columns before continuing.</span></div>',
+            unsafe_allow_html=True,
+        )
+        map_preview, table_preview = st.columns([0.9, 1.1])
+        with map_preview:
+            st.plotly_chart(
+                geo_dma_map(geo_map_frame(panel, st.session_state.geo_assignment), "", height=350),
+                use_container_width=True,
+                config={"displayModeBar": False},
+            )
+            if st.session_state.geo_assignment.empty:
+                st.caption("Markets are shown in gray until Test and Control labels are confirmed.")
+            else:
+                st.caption("Red markets are Test; blue markets are Control. The supplied assignment is not changed.")
+        with table_preview:
+            st.markdown(
+                f'<div class="geo-data-preview-note">Showing 12 of {len(raw):,} source rows · all {len(raw.columns):,} columns</div>',
+                unsafe_allow_html=True,
+            )
+            st.dataframe(raw.head(12), use_container_width=True, height=350)
     except Exception as exc:
         st.error("Data validation issue: We could not interpret the selected Date, DMA, and Outcome columns.")
         print(f"Geographic preparation failed: {exc}")
@@ -4388,11 +5488,17 @@ def render_geo_shell(intent: str | None) -> None:
         """,
         unsafe_allow_html=True,
     )
-    brand, exit_col = st.columns([5, 1])
+    if intent:
+        brand, save_col, exit_col = st.columns([4.2, .8, 1])
+    else:
+        brand, exit_col = st.columns([5, 1])
     brand.markdown(
         '<div class="geo-product-bar"><div class="geo-product-mark">GEO</div><div><div class="geo-product-name">Experiment Platform</div><div class="geo-product-context">Market experimentation workspace</div></div></div>',
         unsafe_allow_html=True,
     )
+    if intent and save_col.button("Save", use_container_width=True, key="geo_save_experiment", help="Save this configuration and the latest available result to the Command Center."):
+        saved = save_current_workspace("Geography")
+        st.toast(f'Saved {saved["name"]} · config v{saved["config_version"]}')
     exit_col.button("All experiments", use_container_width=True, key="geo_all_experiments", on_click=leave_geographic_workspace)
 
 
@@ -4415,24 +5521,7 @@ def geographic_page() -> None:
         unsafe_allow_html=True,
     )
     if not intent:
-        plan_col, analyze_col = st.columns(2)
-        with plan_col:
-            st.markdown(
-                '<div class="geo-choice-v2"><div class="geo-choice-icon">01</div><h3>Plan a Geographic Test</h3><p>Use historical data and your fixed market groups to find the campaign duration and DMA sample needed.</p><div class="geo-choice-result">Recommended duration · Required DMAs · Earliest readout</div></div>',
-                unsafe_allow_html=True,
-            )
-            if st.button("Start Planning", type="primary", use_container_width=True, key="geo_start_plan"):
-                st.session_state.geo_intent = "plan"
-                st.rerun()
-        with analyze_col:
-            st.markdown(
-                '<div class="geo-choice-v2 analysis"><div class="geo-choice-icon">02</div><h3>Analyze Test Results</h3><p>Measure incremental impact using the campaign dates and fixed Test and Control groups in your data.</p><div class="geo-choice-result">Estimated lift · Uncertainty · Clear recommendation</div></div>',
-                unsafe_allow_html=True,
-            )
-            if st.button("Start Analysis", use_container_width=True, key="geo_start_analysis"):
-                st.session_state.geo_intent = "analyze"
-                st.rerun()
-        st.markdown('<div class="geo-entry-note">Your supplied Test and Control markets stay fixed. The platform does not rematch or reassign DMAs.</div>', unsafe_allow_html=True)
+        geo_landing_preview()
         return
 
     _, nav_right = st.columns([5, 1])
@@ -4482,11 +5571,17 @@ def render_ts_shell(intent: str | None) -> None:
         """,
         unsafe_allow_html=True,
     )
-    brand, exit_col = st.columns([5, 1])
+    if intent:
+        brand, save_col, exit_col = st.columns([4.2, .8, 1])
+    else:
+        brand, exit_col = st.columns([5, 1])
     brand.markdown(
         '<div class="ts-product-bar"><div class="ts-product-mark">TIME</div><div><div class="ts-product-name">Experiment Platform</div><div class="ts-product-context">Time-series experimentation workspace</div></div></div>',
         unsafe_allow_html=True,
     )
+    if intent and save_col.button("Save", use_container_width=True, key="ts_save_experiment", help="Save this configuration and the latest available result to the Command Center."):
+        saved = save_current_workspace("Time Series")
+        st.toast(f'Saved {saved["name"]} · config v{saved["config_version"]}')
     exit_col.button("All experiments", use_container_width=True, key="ts_all_experiments", on_click=leave_time_series_workspace)
 
 
@@ -4509,24 +5604,7 @@ def time_series_page() -> None:
         unsafe_allow_html=True,
     )
     if not intent:
-        left, right = st.columns(2)
-        with left:
-            st.markdown(
-                '<div class="ts-choice"><div class="ts-choice-icon">01</div><h3>Plan a Campaign</h3><p>Use historical behavior to estimate the shortest campaign duration and the effect you can reliably detect.</p><div class="ts-choice-result">Recommended duration · Detectable effect · Earliest decision</div></div>',
-                unsafe_allow_html=True,
-            )
-            if st.button("Start Planning", type="primary", use_container_width=True, key="ts_start_planning"):
-                st.session_state.ts_intent = "plan"
-                st.rerun()
-        with right:
-            st.markdown(
-                '<div class="ts-choice analysis"><div class="ts-choice-icon">02</div><h3>Analyze Campaign Results</h3><p>Compare observed outcomes with a pre–post benchmark or an estimated no-campaign trajectory.</p><div class="ts-choice-result">Estimated impact · Uncertainty · Model reliability</div></div>',
-                unsafe_allow_html=True,
-            )
-            if st.button("Start Analysis", use_container_width=True, key="ts_start_analysis"):
-                st.session_state.ts_intent = "analyze"
-                st.rerun()
-        st.markdown('<div class="ts-entry-note">Use this workflow when the intervention begins on a known date and a randomized control group is not available.</div>', unsafe_allow_html=True)
+        ts_landing_preview()
         return
     _, nav_right = st.columns([5, 1])
     if nav_right.button("Switch workflow", key="ts_switch_workflow"):
@@ -4554,6 +5632,166 @@ def time_series_page() -> None:
         ts_decision_step()
 
 
+def start_customer_workflow(intent: str) -> None:
+    """Enter a customer workflow with demo data when no user dataset is active."""
+    cfg: DataConfig = st.session_state.data_config
+    if intent == "plan" and not st.session_state.get("customer_active_data_signature"):
+        scenario = st.session_state.get("customer_demo_scenario", "General Customer Test")
+        reset_customer_data_choices()
+        st.session_state.raw_df = load_customer_demo(scenario)
+        apply_demo_metric_default(scenario)
+        cfg.source_type = "Synthetic Demo"
+        cfg.dataset_name = f"{scenario} Demo"
+        st.session_state.customer_active_data_signature = ("Synthetic Demo", scenario)
+    if intent == "analyze" and st.session_state.results_df is None:
+        st.session_state.results_df = load_results_demo()
+        st.session_state["customer_analysis_source_v2"] = "Synthetic Demo"
+    st.session_state.customer_intent = intent
+
+
+def customer_landing_preview() -> None:
+    """Show a business-readable customer data story before workflow configuration."""
+    cfg: DataConfig = st.session_state.data_config
+    active_signature = st.session_state.get("customer_active_data_signature")
+    using_workspace = bool(active_signature) and not st.session_state.raw_df.empty
+    scenario = st.session_state.get("customer_demo_scenario", "General Customer Test")
+    raw = st.session_state.raw_df if using_workspace else load_customer_demo(scenario)
+    mapping: DataMappingConfig = st.session_state.data_mapping
+    population: PopulationConfig = st.session_state.population_config
+    columns = list(raw.columns)
+    unit_col = mapping.unit_id_column if mapping.unit_id_column in columns else default_column(columns, ["account_id", "customer_id", "user_id", "member_id"])
+    product_col = mapping.cpc_column if mapping.cpc_column in columns else default_column(columns, ["cpc", "product", "brand", "portfolio"])
+    date_col = mapping.booking_date_column if mapping.booking_date_column in columns else default_column(columns, ["booking_date", "start_date", "open_date", "acquisition_date"])
+    period_col = mapping.mob_column if mapping.mob_column in columns else infer_mob_column(raw)
+
+    scenario_fields = {
+        "General Customer Test": ("primary_outcome", "historical_experience", "Continuous"),
+        "Offer & Engagement": ("engagement_score", "historical_offer", "Continuous"),
+        "Retention Strategy": ("retained_flag", "historical_retention_action", "Binary"),
+        "Credit Strategy": ("revolving_balance", "current_credit_line", "Continuous"),
+    }
+    demo_outcome, demo_strategy, demo_metric_type = scenario_fields.get(scenario, ("", "", "Continuous"))
+    primary = st.session_state.metrics_config.get("Primary")
+    configured_outcome = primary.source_column if primary else ""
+    outcome_col = demo_outcome if cfg.source_type == "Synthetic Demo" and demo_outcome in columns else configured_outcome
+    if outcome_col not in columns:
+        outcome_col = default_metric_source(raw, "Primary", configured_outcome)
+    metric_type = demo_metric_type if outcome_col == demo_outcome else (primary.metric_type if primary else "Continuous")
+
+    excluded = {unit_col, product_col, date_col, period_col, outcome_col}
+    strategy_options = strategy_candidates(raw, unit_col, excluded)
+    configured_strategy = st.session_state.strategy_config.historical_column
+    strategy_col = demo_strategy if cfg.source_type == "Synthetic Demo" and demo_strategy in columns else configured_strategy
+    if strategy_col not in columns:
+        strategy_col = strategy_options[0] if strategy_options else ""
+    group_col = population.grouping_column if population.grouping_column in columns else next(
+        (column for column in ["risk_segment", "fico_band", "revenue_band", "segment"] if column in columns),
+        "",
+    )
+
+    try:
+        preview = build_customer_preview(raw, unit_col, outcome_col, product_col, group_col, strategy_col, date_col, period_col)
+    except Exception:
+        raw = load_customer_demo("General Customer Test")
+        scenario = "General Customer Test"
+        unit_col, product_col, group_col = "account_id", "cpc", "risk_segment"
+        outcome_col, strategy_col, date_col, period_col = "primary_outcome", "historical_experience", "booking_date", "mob"
+        metric_type = "Continuous"
+        preview = build_customer_preview(raw, unit_col, outcome_col, product_col, group_col, strategy_col, date_col, period_col)
+        using_workspace = False
+
+    accounts = preview["accounts"]
+    source_label = "your current dataset" if using_workspace else f"the {scenario} demo"
+    outcome_label = humanize_column_name(outcome_col)
+    strategy_label = humanize_column_name(strategy_col) if strategy_col else "Not detected"
+    if pd.notna(preview["start_date"]) and pd.notna(preview["end_date"]):
+        history_label = f"{pd.Timestamp(preview['start_date']):%b %Y} – {pd.Timestamp(preview['end_date']):%b %Y}"
+    else:
+        history_label = "Date not mapped"
+
+    action_copy, plan_action, analyze_action = st.columns([2.4, 1.15, 1.15])
+    action_copy.markdown(
+        f'<div class="customer-demo-actions"><div><strong>See the customer story first</strong><span>Previewing {html.escape(source_label)}. Choose what you need next.</span></div></div>',
+        unsafe_allow_html=True,
+    )
+    if plan_action.button("Plan an Experiment", type="primary", use_container_width=True, key="customer_demo_plan"):
+        start_customer_workflow("plan")
+        st.rerun()
+    if analyze_action.button("Analyze Results", use_container_width=True, key="customer_demo_analyze"):
+        start_customer_workflow("analyze")
+        st.rerun()
+
+    chart_title = "Historical outcome by strategy" if strategy_col else "Historical outcome distribution"
+    chart_note = "Historical association only — the randomized experiment provides causal evidence." if strategy_col else "See the outcome distribution before choosing a test design."
+    st.markdown(
+        f'<div class="customer-section-heading"><strong>{html.escape(chart_title)}</strong><span>{html.escape(chart_note)}</span></div>',
+        unsafe_allow_html=True,
+    )
+    chart_col, summary_col = st.columns([1.75, 0.75])
+    with chart_col:
+        with st.container(border=True):
+            if strategy_col and "Historical Strategy" in accounts:
+                st.plotly_chart(
+                    customer_strategy_outcome_chart(accounts, "Historical Strategy", "Average Outcome", strategy_label, outcome_label, metric_type, height=380),
+                    use_container_width=True,
+                    config={"displayModeBar": False},
+                )
+            else:
+                st.plotly_chart(
+                    customer_metric_distribution(accounts, "Average Outcome", outcome_label, metric_type),
+                    use_container_width=True,
+                    config={"displayModeBar": False},
+                )
+    with summary_col:
+        group_counts = preview["group_counts"].head(3)
+        mix_rows = "".join(
+            f'<div class="customer-mix-row"><span>{html.escape(str(row["Customer Group"]))}</span><div class="customer-mix-track"><div class="customer-mix-fill" style="width:{float(row["Customers / Accounts"]) / max(preview["unique_accounts"], 1) * 100:.1f}%"></div></div><b>{int(row["Customers / Accounts"]):,}</b></div>'
+            for _, row in group_counts.iterrows()
+        )
+        st.markdown(
+            f"""
+            <section class="customer-preview-summary">
+              <h3>Customers in this experiment</h3>
+              <div class="customer-preview-grid">
+                <div class="customer-preview-stat"><div class="customer-preview-label">Customers / Accounts</div><div class="customer-preview-value">{int(preview['unique_accounts']):,}</div><div class="customer-preview-detail">{int(preview['source_rows']):,} source rows</div></div>
+                <div class="customer-preview-stat"><div class="customer-preview-label">Products / Brands</div><div class="customer-preview-value">{int(preview['product_count']):,}</div><div class="customer-preview-detail">Customer starts {html.escape(history_label)}</div></div>
+                <div class="customer-preview-stat"><div class="customer-preview-label">Primary outcome</div><div class="customer-preview-value">{html.escape(outcome_label)}</div><div class="customer-preview-detail">{html.escape(metric_type)} metric</div></div>
+                <div class="customer-preview-stat"><div class="customer-preview-label">Historical strategy</div><div class="customer-preview-value">{html.escape(strategy_label)}</div><div class="customer-preview-detail">Detected from the data</div></div>
+              </div>
+              <div class="customer-mix"><div class="customer-mix-title"><span>Customer mix</span><b>{int(preview['group_count'])} groups</b></div>{mix_rows}</div>
+              <div class="customer-preview-note">Fields are detected from the dataset, not hardcoded. Uploading new data refreshes the available groups, outcomes, and strategies.</div>
+            </section>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    visual_count = int(bool(product_col)) + int(bool(date_col))
+    if visual_count:
+        st.markdown(
+            '<div class="customer-section-heading"><strong>Who is represented in the history?</strong><span>Compare product coverage and when customers entered the available data.</span></div>',
+            unsafe_allow_html=True,
+        )
+        visual_columns = st.columns(visual_count)
+        visual_index = 0
+        if product_col:
+            with visual_columns[visual_index]:
+                st.plotly_chart(customer_category_bar(raw, product_col, unit_col, "Product / Brand"), use_container_width=True, config={"displayModeBar": False})
+            visual_index += 1
+        if date_col:
+            with visual_columns[visual_index]:
+                st.plotly_chart(customer_history_coverage(raw, date_col, unit_col), use_container_width=True, config={"displayModeBar": False})
+
+    account_preview = accounts.head(10).copy()
+    account_preview["Average Outcome"] = account_preview["Average Outcome"].round(2)
+    if "Customer Start" in account_preview:
+        account_preview["Customer Start"] = pd.to_datetime(account_preview["Customer Start"], errors="coerce").dt.strftime("%b %-d, %Y")
+    st.markdown(
+        f'<div class="customer-section-heading"><strong>Customer data preview</strong><span>Showing {min(10, len(accounts))} of {len(accounts):,} customer or account summaries.</span></div>',
+        unsafe_allow_html=True,
+    )
+    st.dataframe(account_preview, use_container_width=True, hide_index=True, height=310)
+
+
 def leave_customer_workspace() -> None:
     st.session_state.customer_intent = None
     st.session_state.main_page = "Overview"
@@ -4576,11 +5814,17 @@ def render_customer_shell(intent: str | None) -> None:
         """,
         unsafe_allow_html=True,
     )
-    brand, exit_col = st.columns([5, 1])
+    if intent:
+        brand, save_col, exit_col = st.columns([4.2, .8, 1])
+    else:
+        brand, exit_col = st.columns([5, 1])
     brand.markdown(
         '<div class="customer-product-bar"><div class="customer-product-mark">CUST</div><div><div class="customer-product-name">Experiment Platform</div><div class="customer-product-context">Customer experimentation workspace</div></div></div>',
         unsafe_allow_html=True,
     )
+    if intent and save_col.button("Save", use_container_width=True, key="customer_save_experiment", help="Save this configuration and the latest available result to the Command Center."):
+        saved = save_current_workspace("Customer")
+        st.toast(f'Saved {saved["name"]} · config v{saved["config_version"]}')
     exit_col.button("All experiments", use_container_width=True, key="customer_all_experiments", on_click=leave_customer_workspace)
 
 
@@ -4603,24 +5847,7 @@ def customer_page() -> None:
         unsafe_allow_html=True,
     )
     if not intent:
-        plan_col, analyze_col = st.columns(2)
-        with plan_col:
-            st.markdown(
-                '<div class="customer-choice-v2"><div class="customer-choice-icon">01</div><h3>Plan an Experiment</h3><p>Define who is eligible, what changes, and how many accounts and periods the test requires.</p><div class="customer-choice-result">Required accounts · Traffic allocation · Test duration</div></div>',
-                unsafe_allow_html=True,
-            )
-            if st.button("Start Planning", type="primary", use_container_width=True, key="customer_start_plan"):
-                st.session_state.customer_intent = "plan"
-                st.rerun()
-        with analyze_col:
-            st.markdown(
-                '<div class="customer-choice-v2 analysis"><div class="customer-choice-icon">02</div><h3>Analyze Results</h3><p>Upload completed randomized results and get arm-level lift, uncertainty, and a decision summary.</p><div class="customer-choice-result">Incremental impact · Confidence · Recommended action</div></div>',
-                unsafe_allow_html=True,
-            )
-            if st.button("Start Analysis", use_container_width=True, key="customer_start_analysis"):
-                st.session_state.customer_intent = "analyze"
-                st.rerun()
-        st.markdown('<div class="customer-entry-note">Designed for randomized customer or account assignments. Statistical controls remain available when your design needs them.</div>', unsafe_allow_html=True)
+        customer_landing_preview()
         return
     _, nav_right = st.columns([5, 1])
     if nav_right.button("Switch workflow", key="customer_switch_workflow"):
