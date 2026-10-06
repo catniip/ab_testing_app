@@ -2,10 +2,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.experiment_platform.assumptions import design_neyman_allocation, design_sample_size_by_arm
-from src.experiment_platform.historical_strategy import binned_historical_statistics, historical_arm_statistics, map_to_strategy_points, validate_fixed_unit_value
-from src.experiment_platform.models import DesignConfig, MetricConfig
-from src.experiment_platform.power import sample_size_continuous_unequal
+from src.experiment_platform.customer import design_neyman_allocation, design_sample_size_by_arm
+from src.experiment_platform.customer import binned_historical_statistics, historical_arm_statistics, map_to_strategy_points, validate_fixed_unit_value
+from src.experiment_platform.core import DesignConfig, MetricConfig
+from src.experiment_platform.customer import sample_size_continuous_unequal
 
 
 def historical_fixture() -> pd.DataFrame:

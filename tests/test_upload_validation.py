@@ -1,15 +1,15 @@
 import pandas as pd
 
-from src.experiment_platform.data_validation import (
+from src.experiment_platform.core import (
     date_like_columns,
     deduplicate_columns,
     infer_mob_column,
     infer_schema,
     safe_numeric_series,
 )
-from src.experiment_platform.metrics import column_schema, suggest_metric_type
-from src.experiment_platform.models import DataMappingConfig, MetricConfig, PopulationConfig
-from src.experiment_platform.raw_processing import build_analysis_dataset
+from src.experiment_platform.core import column_schema, suggest_metric_type
+from src.experiment_platform.core import DataMappingConfig, MetricConfig, PopulationConfig
+from src.experiment_platform.customer import build_analysis_dataset
 
 
 def upload_like_df():

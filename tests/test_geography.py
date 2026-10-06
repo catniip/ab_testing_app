@@ -1,6 +1,6 @@
 import pandas as pd
 
-from src.experiment_platform.data_access import load_geo_demo
+from src.experiment_platform.core import load_geo_demo
 from src.experiment_platform.geography import (
     aggregate_trend,
     build_geo_preview,

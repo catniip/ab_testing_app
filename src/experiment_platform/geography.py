@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from .data_validation import infer_column
+from .core import infer_column
 
 
 DMA_CENTROIDS: dict[str, tuple[float, float]] = {

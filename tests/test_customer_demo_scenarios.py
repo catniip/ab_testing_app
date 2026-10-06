@@ -1,5 +1,5 @@
-from src.experiment_platform.data_access import CUSTOMER_DEMO_SCENARIOS, load_customer_demo
-from src.experiment_platform.models import StrategyConfig
+from src.experiment_platform.core import CUSTOMER_DEMO_SCENARIOS, load_customer_demo
+from src.experiment_platform.core import StrategyConfig
 
 
 def test_customer_demo_scenarios_have_customer_history_and_numeric_outcomes():

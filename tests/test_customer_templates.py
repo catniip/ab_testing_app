@@ -1,5 +1,5 @@
-from src.experiment_platform.customer_templates import CUSTOMER_EXPERIMENT_TEMPLATES, apply_customer_template
-from src.experiment_platform.models import StrategyConfig
+from src.experiment_platform.customer import CUSTOMER_EXPERIMENT_TEMPLATES, apply_customer_template
+from src.experiment_platform.core import StrategyConfig
 
 
 def test_general_customer_templates_cover_core_strategy_families():

@@ -153,11 +153,20 @@ The app should detect Monthly frequency with no missing periods and offer 2, 3, 
 
 ```text
 app.py                              Streamlit application and workflow UI
-src/experiment_platform/           Statistical, data, chart, and portfolio modules
+src/experiment_platform/core.py     Shared configuration, data access, and validation
+src/experiment_platform/customer.py Customer design, power, analysis, and decisions
+src/experiment_platform/geography.py Geographic planning and impact analysis
+src/experiment_platform/timeseries.py Time-series planning and counterfactual analysis
+src/experiment_platform/charts.py   Shared Plotly visualizations
+src/experiment_platform/portfolio.py Saved experiments, Pulse, reports, and decisions
 sample_data/                        Example time-series input
 tests/                              Unit and workflow regression tests
 app.yaml                            Databricks Apps entrypoint
 ```
+
+Only the files above are needed for development. Local virtual environments,
+Python caches, Git metadata, and saved local portfolio state are intentionally
+excluded from transfer and deployment packages.
 
 Run the test suite with:
 

@@ -1,9 +1,9 @@
 import numpy as np
 import pandas as pd
 
-from src.experiment_platform.customer_planning import automatic_matching_distance, assign_group_labels, build_customer_preview, calculate_group_design, calculate_variant_group_design, default_numeric_groups, planning_comparison_count, suggest_group_designs
-from src.experiment_platform.data_access import load_customer_demo
-from src.experiment_platform.models import DesignConfig, MetricConfig
+from src.experiment_platform.customer import automatic_matching_distance, assign_group_labels, build_customer_preview, calculate_group_design, calculate_variant_group_design, default_numeric_groups, planning_comparison_count, suggest_group_designs
+from src.experiment_platform.core import load_customer_demo
+from src.experiment_platform.core import DesignConfig, MetricConfig
 
 
 def planning_history(seed: int = 8) -> pd.DataFrame:

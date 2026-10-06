@@ -10,7 +10,7 @@ from scipy import stats
 from statsmodels.stats.diagnostic import acorr_ljungbox
 from statsmodels.tsa.statespace.structural import UnobservedComponents
 
-from .data_validation import infer_column, normalize_uploaded_dataset, safe_datetime_series, safe_numeric_series
+from .core import infer_column, normalize_uploaded_dataset, safe_datetime_series, safe_numeric_series
 
 
 @dataclass

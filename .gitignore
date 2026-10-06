@@ -8,3 +8,4 @@ __pycache__/
 .streamlit/secrets.toml
 .experiment_portfolio.json
 .experiment_portfolio.json.tmp
+dist/

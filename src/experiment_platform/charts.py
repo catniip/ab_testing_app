@@ -6,7 +6,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-from .historical_strategy import binned_historical_statistics, historical_arm_statistics, historical_curve_statistics
+from .customer import binned_historical_statistics, historical_arm_statistics, historical_curve_statistics
 
 
 CONTROL_COLOR = "#2457a6"

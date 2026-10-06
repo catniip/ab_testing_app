@@ -1,6 +1,6 @@
 import pytest
 
-from src.experiment_platform.assumptions import (
+from src.experiment_platform.customer import (
     design_sample_size,
     detectable_for_metric,
     expected_power,
@@ -8,7 +8,7 @@ from src.experiment_platform.assumptions import (
     required_n,
     validate_metric_assumptions,
 )
-from src.experiment_platform.models import DesignConfig, MetricConfig
+from src.experiment_platform.core import DesignConfig, MetricConfig
 
 
 def continuous_metric(**overrides):

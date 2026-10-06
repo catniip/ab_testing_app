@@ -1,14 +1,14 @@
 import pandas as pd
 
-from src.experiment_platform.analysis import analysis_integrity_summary, binary_results, continuous_results, validate_analysis_data
-from src.experiment_platform.arm_selection import (
+from src.experiment_platform.customer import analysis_integrity_summary, binary_results, continuous_results, validate_analysis_data
+from src.experiment_platform.customer import (
     numeric_candidates,
     suggest_numeric_designs,
     validate_categorical_strategy,
     validate_numeric_strategy,
 )
-from src.experiment_platform.decision import arm_decision_scorecard, experiment_recommendation, guardrail_status, project_rollout_impact, recommendation_status
-from src.experiment_platform.demo_data import experiment_results, historical_portfolio
+from src.experiment_platform.customer import arm_decision_scorecard, experiment_recommendation, guardrail_status, project_rollout_impact, recommendation_status
+from src.experiment_platform.core import experiment_results, historical_portfolio
 from src.experiment_platform.charts import (
     customer_allocation_health_chart,
     customer_category_bar,
@@ -22,8 +22,8 @@ from src.experiment_platform.charts import (
     historical_association,
     response_plot,
 )
-from src.experiment_platform.metrics import column_schema, suggest_metric_type, validate_metric
-from src.experiment_platform.power import detectable_effect_binary, detectable_effect_continuous, power_binary, power_continuous, sample_size_binary, sample_size_continuous
+from src.experiment_platform.core import column_schema, suggest_metric_type, validate_metric
+from src.experiment_platform.customer import detectable_effect_binary, detectable_effect_continuous, power_binary, power_continuous, sample_size_binary, sample_size_continuous
 
 
 def test_schema_and_metric_type_inference():

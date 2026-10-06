@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import pytest
 
-from src.experiment_platform.demo_data import time_series_campaign
+from src.experiment_platform.core import time_series_campaign
 from src.experiment_platform.charts import time_series_line
 from src.experiment_platform.timeseries import (
     _seasonal_period,

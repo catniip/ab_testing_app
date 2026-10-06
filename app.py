@@ -8,32 +8,86 @@ import streamlit as st
 from dataclasses import asdict, fields
 from datetime import datetime
 
-from src.experiment_platform.analysis import analysis_integrity_summary, binary_results, continuous_results, response_summary, validate_analysis_data
-from src.experiment_platform.assumptions import (
+from src.experiment_platform.customer import (
+    adjusted_alpha,
+    analysis_integrity_summary,
+    apply_customer_template,
+    arm_decision_scorecard,
+    assign_group_labels,
+    binary_results,
+    build_analysis_dataset,
+    build_customer_preview,
+    calculate_group_design,
+    calculate_variant_group_design,
+    continuous_results,
+    default_numeric_groups,
     design_sample_size,
     design_sample_size_by_arm,
     design_neyman_allocation,
     detectable_for_metric,
+    detectable_effect_binary,
+    detectable_effect_continuous,
+    detectable_effect_continuous_unequal,
+    duration,
     expected_power,
+    experiment_recommendation,
+    fixed_unit_values,
+    guardrail_status,
+    historical_arm_statistics,
     normalize_metric,
+    planning_comparison_count,
+    power_binary,
+    power_continuous,
+    power_continuous_unequal,
+    project_rollout_impact,
+    recommendation_status,
+    response_summary,
+    sample_size_binary,
+    sample_size_continuous,
+    suggest_group_designs,
+    suggest_numeric_designs,
     update_assumption_from_history,
+    validate_analysis_data,
+    validate_categorical_strategy,
+    validate_fixed_unit_value,
     validate_metric_assumptions,
+    validate_numeric_strategy,
 )
-from src.experiment_platform.arm_selection import suggest_numeric_designs, validate_categorical_strategy, validate_numeric_strategy
 from src.experiment_platform.charts import bsts_counterfactual_chart, cumulative_impact_chart, customer_allocation_health_chart, customer_category_bar, customer_decision_map, customer_design_tradeoff_chart, customer_group_summary_chart, customer_history_coverage, customer_metric_distribution, customer_option_chart, customer_required_accounts_chart, customer_rollout_impact_chart, customer_strategy_outcome_chart, customer_traffic_allocation_chart, detectable_effect_curve, forest_plot, geo_balance_chart, geo_dma_map, geo_trend_chart, historical_association, impact_chart, portfolio_value_chart, pre_post_bar, response_plot, time_series_line, timeseries_chart_context
-from src.experiment_platform.customer_planning import assign_group_labels, build_customer_preview, calculate_group_design, calculate_variant_group_design, default_numeric_groups, planning_comparison_count, suggest_group_designs
-from src.experiment_platform.customer_templates import apply_customer_template
-from src.experiment_platform.data_access import CUSTOMER_DEMO_SCENARIOS, load_customer_demo, load_geo_demo, load_raw_demo, load_results_demo, load_timeseries_demo, load_timeseries_planning_demo, load_uploaded_csv
-from src.experiment_platform.data_validation import data_quality_warnings, date_like_columns, first_series, infer_column, infer_mob_column, normalize_uploaded_dataset, safe_numeric_series
-from src.experiment_platform.decision import arm_decision_scorecard, experiment_recommendation, guardrail_status, project_rollout_impact, recommendation_status
-from src.experiment_platform.formatting import money, number, p_value, percent
+from src.experiment_platform.core import (
+    AnalysisConfig,
+    CUSTOMER_DEMO_SCENARIOS,
+    DataConfig,
+    DataMappingConfig,
+    DesignConfig,
+    MetricConfig,
+    PopulationConfig,
+    StrategyConfig,
+    column_schema,
+    data_quality_warnings,
+    date_like_columns,
+    first_series,
+    infer_column,
+    infer_mob_column,
+    load_customer_demo,
+    load_geo_demo,
+    load_raw_demo,
+    load_results_demo,
+    load_timeseries_demo,
+    load_timeseries_planning_demo,
+    load_uploaded_csv,
+    metric_baseline,
+    money,
+    normalize_uploaded_dataset,
+    number,
+    p_value,
+    percent,
+    safe_numeric_series,
+    suggest_metric_type,
+    validate_metric,
+)
 from src.experiment_platform.geography import DMA_CENTROIDS, GeoConfig, aggregate_trend, build_geo_preview, evaluate_geo_balance, infer_geo_schema, leave_one_dma_out, plan_geo_test, prepare_geo_analysis, prepare_geo_panel, run_panel_did, run_placebo_tests, validate_fixed_assignment, validate_geo_panel
-from src.experiment_platform.historical_strategy import fixed_unit_values, historical_arm_statistics, validate_fixed_unit_value
-from src.experiment_platform.metrics import column_schema, metric_baseline, suggest_metric_type, validate_metric
-from src.experiment_platform.models import AnalysisConfig, DataConfig, DataMappingConfig, DesignConfig, MetricConfig, PopulationConfig, StrategyConfig
-from src.experiment_platform.power import adjusted_alpha, detectable_effect_binary, detectable_effect_continuous, detectable_effect_continuous_unequal, duration, power_binary, power_continuous, power_continuous_unequal, sample_size_binary, sample_size_continuous
 from src.experiment_platform.portfolio import PORTFOLIO_STATUSES, build_rollout_plan, business_report_html, duplicate_experiment, freeze_decision_snapshot, load_experiments, portfolio_summary, pulse_summary, save_configuration, upsert_experiment, value_timeline
-from src.experiment_platform.raw_processing import build_analysis_dataset
 from src.experiment_platform.timeseries import TimeSeriesConfig, build_business_interpretation, build_timeseries_preview, campaign_decision_date, classify_calibration, config_fingerprint, data_fingerprint, detect_frequency, duplicate_timestamp_count, duration_power_status, fit_bsts_model, humanize_column_name, incremental_outcome_label, infer_timeseries_columns, method_config_fingerprint, planning_config_fingerprint, planning_durations, prepare_timeseries_data, predictor_candidates, probability_positive_label, projected_operational_exposure, run_duration_power_simulation, run_pre_post_analysis
 
 
@@ -82,26 +136,50 @@ st.markdown(
     .next-step {border-top:1px solid var(--line); margin-top:1rem; padding-top:.75rem; color:#4e5869; font-size:.84rem;}
     .business-guide {display:flex; justify-content:space-between; gap:1rem; align-items:center; border-left:4px solid #91a2bb; padding:.62rem .8rem; margin:.05rem 0 1rem; background:#f7f9fc; color:#596476; font-size:.8rem; line-height:1.45;}
     .business-guide b {flex:0 0 auto; color:var(--ink); font-size:.74rem; font-weight:750;}
-    .overview-hero {position:relative; overflow:hidden; border:1px solid #dce2eb; border-left:5px solid var(--coral); padding:1.25rem 1.4rem 1.15rem; margin:.2rem 0 1.35rem; background:#fff; box-shadow:0 8px 24px rgba(35,41,54,.06);}
-    .overview-hero:after {content:""; position:absolute; right:0; top:0; width:32%; height:4px; background:var(--gold);}
-    .overview-kicker {font-size:.7rem; text-transform:uppercase; font-weight:800; color:var(--coral); margin-bottom:.35rem;}
-    .overview-hero h1 {font-size:2rem; margin:.05rem 0 .35rem; max-width:760px;}
-    .overview-hero p {font-size:.94rem; max-width:760px; margin:0; color:#596476;}
-    .overview-signal {display:flex; gap:1.2rem; flex-wrap:wrap; margin-top:.9rem; padding-top:.8rem; border-top:1px solid #edf0f4;}
-    .overview-signal span {font-size:.75rem; color:#697386;}
-    .overview-signal b {color:var(--ink); margin-right:.25rem;}
-    .overview-section-title {margin:.35rem 0 .15rem; font-size:1.05rem; font-weight:750; color:var(--ink);}
-    .overview-section-copy {margin:0 0 .85rem; font-size:.84rem; color:#6c7687;}
-    .workflow-card {height:310px; border:1px solid var(--line); border-top:4px solid #91a2bb; border-radius:7px; padding:1rem 1rem .85rem; background:#fff; transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;}
+    .overview-hero {position:relative; overflow:hidden; border-bottom:1px solid var(--line); padding:.55rem 0 1rem; margin:.1rem 0 1.05rem; background:#fff;}
+    .overview-hero:after {content:""; position:absolute; left:0; bottom:-1px; width:96px; height:3px; background:var(--coral);}
+    .overview-hero h1 {font-size:2rem; margin:.05rem 0 .3rem; max-width:760px;}
+    .overview-hero p {font-size:.92rem; max-width:810px; margin:0; color:#596476;}
+    .overview-section-title {margin:.25rem 0 .12rem; font-size:1.05rem; font-weight:750; color:var(--ink);}
+    .overview-section-copy {margin:0 0 .72rem; font-size:.82rem; color:#6c7687;}
+    .workflow-card {height:304px; border:1px solid var(--line); border-top:4px solid #91a2bb; border-radius:7px; padding:1rem 1rem .85rem; background:#fff; transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;}
     .workflow-card:hover {transform:translateY(-3px); box-shadow:0 10px 24px rgba(35,41,54,.09); border-color:#cdd5e1;}
     .workflow-card.customer {border-top-color:var(--coral);}
     .workflow-card.geo {border-top-color:var(--teal);}
     .workflow-card.time {border-top-color:var(--gold);}
-    .workflow-index {font-size:.68rem; font-weight:800; color:#8a94a5; text-transform:uppercase;}
-    .workflow-card h3 {font-size:1.05rem; margin:.38rem 0 .42rem;}
-    .workflow-card p {font-size:.82rem; line-height:1.48; min-height:3.7rem; margin:0; color:#626d7e;}
-    .workflow-fit {margin-top:.8rem; padding-top:.65rem; border-top:1px solid #edf0f4; font-size:.76rem; color:#697386;}
-    .workflow-fit b {display:block; color:var(--ink); margin-bottom:.12rem;}
+    .workflow-card-head {display:flex; align-items:center; justify-content:space-between; gap:.7rem;}
+    .workflow-mark {display:grid; place-items:center; width:38px; height:38px; border-radius:6px; background:#fff0ef; color:#c93636; font-size:.65rem; font-weight:850;}
+    .workflow-card.geo .workflow-mark {background:#e8f6f2; color:#0d6a58;}
+    .workflow-card.time .workflow-mark {background:#fff4dd; color:#946300;}
+    .workflow-method {font-size:.67rem; font-weight:760; color:#7a8495; text-align:right;}
+    .workflow-card h3 {font-size:1rem; line-height:1.3; margin:.7rem 0 .38rem; min-height:3.9rem;}
+    .workflow-card p {font-size:.79rem; line-height:1.45; min-height:3.45rem; margin:0; color:#626d7e;}
+    .workflow-examples {margin-top:.72rem; padding-top:.62rem; border-top:1px solid #edf0f4; font-size:.7rem; line-height:1.42; color:#737d8e;}
+    .workflow-examples b {display:block; color:#4b5668; margin-bottom:.1rem;}
+    .workflow-outcome {margin-top:.55rem; font-size:.7rem; line-height:1.4; color:#4f596b; font-weight:680;}
+    .st-key-home_choose_customer button {background:var(--coral); border-color:var(--coral); color:#fff; font-weight:700;}
+    .st-key-home_choose_geo button {background:var(--teal); border-color:var(--teal); color:#fff; font-weight:700;}
+    .st-key-home_choose_timeseries button {background:var(--gold); border-color:var(--gold); color:#fff; font-weight:700;}
+    .st-key-home_choose_customer button p, .st-key-home_choose_geo button p, .st-key-home_choose_timeseries button p {color:#fff;}
+    .home-rule {display:flex; align-items:center; justify-content:center; gap:.5rem; margin:.85rem 0 1.25rem; padding:.55rem .8rem; border:1px solid #e4e8ef; background:#f8f9fb; color:#5e697a; font-size:.74rem;}
+    .home-rule b {color:var(--ink);}
+    .home-portfolio-head {display:flex; align-items:flex-end; justify-content:space-between; gap:1rem; border-top:1px solid var(--line); padding-top:1rem; margin-top:.2rem;}
+    .home-portfolio-head strong {font-size:1.05rem; color:var(--ink);}
+    .home-portfolio-head span {display:block; margin-top:.1rem; font-size:.76rem; color:#737d8e;}
+    .home-kpis {display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); border:1px solid var(--line); border-radius:7px; background:#fff; margin:.65rem 0 .85rem; overflow:hidden;}
+    .home-kpi {padding:.72rem .85rem; min-width:0;}
+    .home-kpi + .home-kpi {border-left:1px solid #edf0f4;}
+    .home-kpi span {display:block; font-size:.65rem; color:#7a8495; text-transform:uppercase; font-weight:730;}
+    .home-kpi b {display:block; margin-top:.16rem; color:var(--ink); font-size:1.08rem;}
+    .home-experiment-list {border:1px solid var(--line); border-radius:7px; background:#fff; overflow:hidden;}
+    .home-experiment-row {display:grid; grid-template-columns:minmax(150px,1.5fr) 105px minmax(90px,1fr) 42px; gap:.65rem; align-items:center; padding:.62rem .78rem; min-height:50px;}
+    .home-experiment-row + .home-experiment-row {border-top:1px solid #edf0f4;}
+    .home-experiment-name b {display:block; color:var(--ink); font-size:.76rem;}
+    .home-experiment-name span, .home-experiment-next {display:block; color:#7a8495; font-size:.67rem; margin-top:.08rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+    .home-status {font-size:.68rem; font-weight:720; color:#117865;}
+    .home-progress {height:6px; background:#e8ecf2; overflow:hidden; border-radius:3px;}
+    .home-progress-fill {height:100%; background:var(--teal);}
+    .home-progress-value {font-size:.67rem; color:#5f697a; text-align:right;}
     .overview-flow {display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); margin:1.45rem 0 .8rem; border:1px solid var(--line); border-radius:7px; background:#f8f9fb;}
     .flow-step {position:relative; padding:.85rem 1rem .8rem 2.8rem; min-height:74px;}
     .flow-step + .flow-step {border-left:1px solid var(--line);}
@@ -439,6 +517,7 @@ def init_state() -> None:
     st.session_state.setdefault("portfolio_selected_id", "")
     st.session_state.setdefault("active_portfolio_id", "")
     st.session_state.setdefault("portfolio_show_create", False)
+    st.session_state.setdefault("overview_mode", "Home")
     st.session_state.setdefault("experiment_name", "New Customer Experiment")
     st.session_state.setdefault("data_config", DataConfig())
     st.session_state.setdefault("strategy_config", StrategyConfig())
@@ -1042,6 +1121,22 @@ def open_workspace(page: str) -> None:
     st.session_state.main_page = page
 
 
+def open_experiment_landing(experiment_type: str) -> None:
+    """Open a method landing page without preselecting Plan or Analyze."""
+    st.session_state.main_page = experiment_type
+    if experiment_type == "Customer":
+        st.session_state.customer_intent = None
+    elif experiment_type == "Geography":
+        st.session_state.geo_intent = None
+    else:
+        st.session_state.ts_intent = None
+
+
+def set_overview_mode(mode: str) -> None:
+    st.session_state.overview_mode = mode
+    st.session_state.main_page = "Overview"
+
+
 def compact_money(value: float) -> str:
     if abs(value) >= 1_000_000:
         return f"${value / 1_000_000:.1f}M"
@@ -1476,15 +1571,16 @@ def render_experiment_detail(experiment: dict) -> None:
                 st.rerun()
 
 
-def show_overview() -> None:
+def show_command_center() -> None:
     experiments = load_experiments()
     summary = portfolio_summary(experiments)
-    title_col, action_col = st.columns([4.4, 1.25])
+    title_col, back_col, action_col = st.columns([3.7, 1.05, 1.25])
     title_col.markdown(
         '<div class="command-header"><div><h1>Experiment Command Center</h1>'
         '<p>See what is running, what needs attention, and what is ready for a decision.</p></div></div>',
         unsafe_allow_html=True,
     )
+    back_col.button("Experiment chooser", use_container_width=True, key="portfolio_back_home", on_click=set_overview_mode, args=("Home",))
     if action_col.button("New Experiment", type="primary", use_container_width=True, key="portfolio_new_experiment"):
         create_experiment_dialog()
     st.markdown(
@@ -1561,6 +1657,118 @@ def show_overview() -> None:
                 for item in snapshots[:5]
             )
             st.markdown(f'<div class="decision-feed">{feed}</div>', unsafe_allow_html=True)
+
+
+def show_overview() -> None:
+    if st.session_state.get("overview_mode") == "Command Center":
+        show_command_center()
+        return
+
+    experiments = load_experiments()
+    summary = portfolio_summary(experiments)
+    alerts = [item for item in experiments if item.get("alert")]
+    st.markdown(
+        '<section class="overview-hero"><h1>What are you trying to test?</h1>'
+        '<p>Start with how the strategy can be delivered. The platform will take you to the right planning and analysis workflow.</p></section>',
+        unsafe_allow_html=True,
+    )
+    st.markdown('<div class="overview-section-title">Choose the situation that matches your business</div>', unsafe_allow_html=True)
+    st.markdown('<div class="overview-section-copy">You do not need to choose a statistical method first.</div>', unsafe_allow_html=True)
+
+    customer_col, geo_col, time_col = st.columns(3)
+    with customer_col:
+        st.markdown(
+            '<section class="workflow-card customer">'
+            '<div class="workflow-card-head"><div class="workflow-mark">CUST</div><div class="workflow-method">CUSTOMER EXPERIMENT</div></div>'
+            '<h3>Different customers can receive different strategies</h3>'
+            '<p>Randomly assign customers or accounts to BAU and test options.</p>'
+            '<div class="workflow-examples"><b>Examples</b>Offers · Credit lines · Pricing · Retention</div>'
+            '<div class="workflow-outcome">Plan sample and traffic. Measure lift.</div>'
+            '</section>',
+            unsafe_allow_html=True,
+        )
+        st.button(
+            "Choose Customer Experiment",
+            use_container_width=True,
+            key="home_choose_customer",
+            on_click=open_experiment_landing,
+            args=("Customer",),
+        )
+    with geo_col:
+        st.markdown(
+            '<section class="workflow-card geo">'
+            '<div class="workflow-card-head"><div class="workflow-mark">GEO</div><div class="workflow-method">GEOGRAPHIC TEST</div></div>'
+            '<h3>Different markets can receive different plans</h3>'
+            '<p>Compare fixed Test and Control markets supplied by the business.</p>'
+            '<div class="workflow-examples"><b>Examples</b>Regional media · Market launches · Branch programs</div>'
+            '<div class="workflow-outcome">Plan timing. Measure incremental impact.</div>'
+            '</section>',
+            unsafe_allow_html=True,
+        )
+        st.button(
+            "Choose Geography Experiment",
+            use_container_width=True,
+            key="home_choose_geo",
+            on_click=open_experiment_landing,
+            args=("Geography",),
+        )
+    with time_col:
+        st.markdown(
+            '<section class="workflow-card time">'
+            '<div class="workflow-card-head"><div class="workflow-mark">TIME</div><div class="workflow-method">TIME SERIES</div></div>'
+            '<h3>Everyone sees the same launch at the same time</h3>'
+            '<p>Measure a shared launch when no randomized control group exists.</p>'
+            '<div class="workflow-examples"><b>Examples</b>National campaigns · Policy changes · Releases</div>'
+            '<div class="workflow-outcome">Plan duration. Estimate impact over time.</div>'
+            '</section>',
+            unsafe_allow_html=True,
+        )
+        st.button(
+            "Choose Time Series Experiment",
+            use_container_width=True,
+            key="home_choose_timeseries",
+            on_click=open_experiment_landing,
+            args=("Time Series",),
+        )
+
+    st.markdown(
+        '<div class="home-rule"><b>Fast rule:</b> Randomize people → Customer &nbsp;·&nbsp; Compare fixed markets → Geography &nbsp;·&nbsp; No control group → Time Series</div>',
+        unsafe_allow_html=True,
+    )
+
+    portfolio_copy, command_col = st.columns([4.1, 1.35])
+    portfolio_copy.markdown(
+        '<div class="home-portfolio-head"><div><strong>Your experiments</strong><span>Jump back into active work or open the full portfolio.</span></div></div>',
+        unsafe_allow_html=True,
+    )
+    command_col.button(
+        "Command Center",
+        type="primary",
+        use_container_width=True,
+        key="home_open_command_center",
+        on_click=set_overview_mode,
+        args=("Command Center",),
+    )
+    st.markdown(
+        f'<div class="home-kpis">'
+        f'<div class="home-kpi"><span>In market</span><b>{summary["running"]}</b></div>'
+        f'<div class="home-kpi"><span>Ready to decide</span><b>{summary["ready"]}</b></div>'
+        f'<div class="home-kpi"><span>Needs attention</span><b>{len(alerts)}</b></div>'
+        f'<div class="home-kpi"><span>Projected value</span><b>{compact_money(float(summary["projected_value"]))}</b></div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    recent = sorted(experiments, key=lambda item: str(item.get("updated_at", "")), reverse=True)[:4]
+    recent_rows = "".join(
+        f'<div class="home-experiment-row">'
+        f'<div class="home-experiment-name"><b>{html.escape(item["name"])}</b><span>{html.escape(item["type"])} · {html.escape(item.get("owner", "Unassigned"))}</span></div>'
+        f'<div class="home-status">{html.escape(item["status"])}</div>'
+        f'<div><div class="home-progress"><div class="home-progress-fill" style="width:{max(0, min(int(item.get("progress", 0)), 100))}%"></div></div><div class="home-experiment-next">Next: {html.escape(item.get("action", "Review experiment"))}</div></div>'
+        f'<div class="home-progress-value">{int(item.get("progress", 0))}%</div>'
+        f'</div>'
+        for item in recent
+    )
+    st.markdown(f'<div class="home-experiment-list">{recent_rows}</div>', unsafe_allow_html=True)
 
 
 def configure_metric_compact(role: str, raw_df: pd.DataFrame) -> None:
@@ -5468,6 +5676,7 @@ def geo_decision_step() -> None:
 
 def leave_geographic_workspace() -> None:
     st.session_state.geo_intent = None
+    st.session_state.overview_mode = "Command Center"
     st.session_state.main_page = "Overview"
 
 
@@ -5550,6 +5759,7 @@ def geographic_page() -> None:
 
 def leave_time_series_workspace() -> None:
     st.session_state.ts_intent = None
+    st.session_state.overview_mode = "Command Center"
     st.session_state.main_page = "Overview"
 
 
@@ -5794,6 +6004,7 @@ def customer_landing_preview() -> None:
 
 def leave_customer_workspace() -> None:
     st.session_state.customer_intent = None
+    st.session_state.overview_mode = "Command Center"
     st.session_state.main_page = "Overview"
 
 
@@ -5876,7 +6087,13 @@ def customer_page() -> None:
 init_state()
 with st.sidebar:
     st.title("Experiment Platform")
-    page = st.radio("Overview", ["Overview", "Customer", "Geography", "Time Series"], label_visibility="collapsed", key="main_page")
+    page = st.radio(
+        "Overview",
+        ["Overview", "Customer", "Geography", "Time Series"],
+        format_func=lambda value: "Home" if value == "Overview" else value,
+        label_visibility="collapsed",
+        key="main_page",
+    )
 
 if page == "Overview":
     show_overview()

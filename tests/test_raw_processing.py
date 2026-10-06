@@ -1,9 +1,9 @@
 import pandas as pd
 import pytest
 
-from src.experiment_platform.metrics import metric_baseline
-from src.experiment_platform.models import DataMappingConfig, MetricConfig, PopulationConfig
-from src.experiment_platform.raw_processing import (
+from src.experiment_platform.core import metric_baseline
+from src.experiment_platform.core import DataMappingConfig, MetricConfig, PopulationConfig
+from src.experiment_platform.customer import (
     aggregate_metric_by_mob,
     build_historical_metric_dataset,
     build_analysis_dataset,
